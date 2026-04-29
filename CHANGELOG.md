@@ -2,6 +2,27 @@
 
 All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
 
+## [2.7.3] — 2026-04-29
+
+Third independent review pass. Each prior pass found 5+ real bugs; this pass surfaced 7 more across untested code paths. None are CVE-class — the architectural conf-source sink stayed closed — but each is a real bug that would bite users in normal operation.
+
+### Fixed (pp-sync v2.0.2)
+
+- **`pp generate-page` now validates the page name** against `^[A-Za-z0-9 _.-]+$` and explicitly rejects `..`, `/`, and `\`. Previously the page name flowed unchecked into filename paths and YAML/HTML heredocs — an input like `../../etc/foo` would have written outside the site directory; one with embedded quotes could have produced malformed YAML.
+- **`pp doctor` no longer aborts under bash strict mode when run outside a git tree.** The `git status --porcelain | wc -l | tr -d ' '` pipeline tripped pipefail because `git` exits 128 in non-git directories. Same fix applied to similar counters in `cmd_up`, `cmd_diff`, and the doctor site-content counts. Each now ends with `|| echo 0`.
+- **`pp journal note|close` finds the URL from `Issue:` lines specifically**, not "the last URL of any kind in JOURNAL.md". Previously a note containing an inline cross-repo reference (`see also https://other-org/other-repo/issues/42`) became the validator's target, locking the user out of further `note`/`close` operations until they hand-edited the journal. Now the extraction matches `^Issue: https://...` — only the URLs `pp journal open` actually wrote.
+- **`pp journal open` (github branch) filters `gh issue create` output** through `grep -oE 'https://github\.com/.../issues/[0-9]+'` before persisting to JOURNAL.md, mirroring the gitlab branch. Older `gh` versions and some non-TTY contexts emit informational lines on stdout alongside the URL; the unfiltered capture would seed JOURNAL.md with a multi-line value that subsequent validation rejects, leaving an orphan issue on GitHub.
+- **`pp solution-down|up` validates the picked solution number is in range** before indexing `${SOLUTIONS[$((pick-1))]}`. Previously typing `99` on a 2-solution config crashed with `unbound variable` instead of a friendly error.
+- **`pp setup` candidate display preserves paths with spaces.** `printf '  %s\n' $candidates` (unquoted) word-split on whitespace, mis-rendering paths under `~/Projects/Some Client/`. Now uses `printf '%s\n' "$candidates" | sed 's/^/  /'`.
+
+### Tests
+
+- Test runners (`test_load_project.sh`, `test_register_atomic.sh`) now use `trap cleanup_tmpdirs EXIT` so `mktemp -d` directories are removed even if the suite is interrupted (Ctrl-C, SIGTERM, mid-run failure).
+
+### Notes on findings investigated and dismissed
+
+- An audit claim that 4 markdown anchors with `--` (double dash) were broken turned out to be a **false positive**. GitHub's slugger does NOT collapse consecutive dashes — em-dash-with-spaces in a heading legitimately produces `--` in the slug. Verified against the actual GFM slug algorithm. The `#270--2026-04-29`, `#async-ui-updates--aria-live-regions`, `#documents--file-upload-limits` anchors are correct as shipped.
+
 ## [2.7.2] — 2026-04-29
 
 Follow-up patch surfacing five real bugs found by an independent post-release review. None are CVE-class — the v2.7.0 architectural fix is intact — but each is a real bug worth closing.
@@ -310,6 +331,7 @@ Static analysis of Power Pages portal permissions and Web API configuration. Std
 - Per-plugin manifests + READMEs
 - `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
 
+[2.7.3]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.3
 [2.7.2]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.2
 [2.7.1]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.1
 [2.7.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.0

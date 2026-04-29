@@ -22,6 +22,17 @@ PASS=0
 FAIL=0
 FAIL_NAMES=()
 
+# Each run_test creates a tmpdir; track them so a SIGINT/SIGTERM doesn't
+# leak temp directories under /tmp.
+TMPDIRS=()
+cleanup_tmpdirs() {
+    local tmp
+    for tmp in "${TMPDIRS[@]}"; do
+        rm -rf "$tmp"
+    done
+}
+trap cleanup_tmpdirs EXIT
+
 # Run a single test in a subshell so variable resets and aborts don't leak.
 # Args:
 #   $1: fixture name (basename without .conf)
@@ -31,6 +42,7 @@ run_test() {
     local fixture="$1" expect="$2" assertions="${3:-true}"
     local conf_dir
     conf_dir="$(mktemp -d)"
+    TMPDIRS+=( "$conf_dir" )
     mkdir -p "$conf_dir/projects"
     cp "$FIXTURES/$fixture.conf" "$conf_dir/projects/test.conf"
 

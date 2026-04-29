@@ -392,7 +392,10 @@ cmd_setup() {
     fi
 
     echo "Found:"
-    printf '  %s\n' $candidates
+    # Quote $candidates so paths with spaces stay one-per-line. The
+    # find pipeline produces newline-separated entries; bash word-
+    # splitting on unquoted $candidates would mis-print such paths.
+    printf '%s\n' "$candidates" | sed 's/^/  /'
     echo
     confirm_action "Walk through registering each candidate?"
 
@@ -679,10 +682,12 @@ cmd_down() {
     fi
 
     local total
-    total=$(git status -s 2>/dev/null | wc -l | tr -d ' ')
+    # `|| echo 0` guards against `git status` exiting non-zero (e.g. run
+    # from outside a git tree); pipefail would otherwise abort cmd_up.
+    total=$(git status -s 2>/dev/null | wc -l | tr -d ' ' || echo 0)
     echo
     info "Files changed: $total"
-    git status -s | head -30
+    git status -s 2>/dev/null | head -30 || true
     ok "Done. Review diffs and commit when ready."
 }
 
@@ -724,7 +729,7 @@ cmd_up() {
     local tracked untracked changed
     tracked=$(git diff --name-only HEAD -- "$SITE_DIR" 2>/dev/null || true)
     untracked=$(git ls-files --others --exclude-standard -- "$SITE_DIR" 2>/dev/null || true)
-    changed=$(printf '%s\n%s\n' "$tracked" "$untracked" | grep -v '^$' | sort -u | wc -l | tr -d ' ')
+    changed=$(printf '%s\n%s\n' "$tracked" "$untracked" | grep -v '^$' | sort -u | wc -l | tr -d ' ' || echo 0)
     info "Estimated changed files: $changed"
 
     if [ "$changed" -gt "$bulk_threshold" ] && [ "$force_bulk" = "0" ]; then
@@ -862,7 +867,7 @@ cmd_diff() {
         local label="$1" body="$2"
         [ -z "$body" ] && return 0
         local count
-        count=$(printf '%s' "$body" | grep -c .)
+        count=$(printf '%s' "$body" | grep -c . || echo 0)
         echo "${BOLD}$label${RST}  ($count)"
         printf '%s' "$body" | sed 's/^/  /'
         echo
@@ -952,7 +957,7 @@ cmd_doctor() {
     [ -f "$SITE_DIR/website.yml" ] && ok "website.yml present" || err "website.yml MISSING"
 
     local dirty branch
-    dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ' || echo 0)
     branch=$(git branch --show-current 2>/dev/null || echo "(none)")
     echo "  Branch:           $branch"
     echo "  Dirty files:      $dirty"
@@ -962,11 +967,13 @@ cmd_doctor() {
 
     echo
     echo "${BOLD}## Site content counts${RST}"
-    echo "  Web pages:        $(find "$SITE_DIR/web-pages" -name "*.webpage.yml" 2>/dev/null | wc -l | tr -d ' ')"
-    echo "  Web templates:    $(find "$SITE_DIR/web-templates" -name "*.webtemplate.source.html" 2>/dev/null | wc -l | tr -d ' ')"
-    echo "  Content snippets: $(find "$SITE_DIR/content-snippets" -name "*.contentsnippet.value.html" 2>/dev/null | wc -l | tr -d ' ')"
-    echo "  Table perms:      $(find "$SITE_DIR/table-permissions" -name "*.tablepermission.yml" 2>/dev/null | wc -l | tr -d ' ')"
-    echo "  Custom JS files:  $(find "$SITE_DIR/web-pages" "$SITE_DIR/web-files" -name "*.js" 2>/dev/null | wc -l | tr -d ' ')"
+    # `|| echo 0` guards each counter so that a missing subdir or a
+    # `find` quirk doesn't trip pipefail and abort doctor mid-report.
+    echo "  Web pages:        $(find "$SITE_DIR/web-pages" -name "*.webpage.yml" 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+    echo "  Web templates:    $(find "$SITE_DIR/web-templates" -name "*.webtemplate.source.html" 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+    echo "  Content snippets: $(find "$SITE_DIR/content-snippets" -name "*.contentsnippet.value.html" 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+    echo "  Table perms:      $(find "$SITE_DIR/table-permissions" -name "*.tablepermission.yml" 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+    echo "  Custom JS files:  $(find "$SITE_DIR/web-pages" "$SITE_DIR/web-files" -name "*.js" 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
     echo
     ok "Done."
 }
@@ -999,6 +1006,9 @@ cmd_solution_down() {
             local pick
             read -r -p "Pick number or name: " pick
             if [[ "$pick" =~ ^[0-9]+$ ]]; then
+                if [ "$pick" -lt 1 ] || [ "$pick" -gt "${#SOLUTIONS[@]}" ]; then
+                    die "Pick must be between 1 and ${#SOLUTIONS[@]}: got '$pick'"
+                fi
                 solution="${SOLUTIONS[$((pick-1))]}"
             else
                 solution="$pick"
@@ -1066,6 +1076,9 @@ cmd_solution_up() {
             local pick
             read -r -p "Pick number or name: " pick
             if [[ "$pick" =~ ^[0-9]+$ ]]; then
+                if [ "$pick" -lt 1 ] || [ "$pick" -gt "${#SOLUTIONS[@]}" ]; then
+                    die "Pick must be between 1 and ${#SOLUTIONS[@]}: got '$pick'"
+                fi
                 solution="${SOLUTIONS[$((pick-1))]}"
             else
                 solution="$pick"
@@ -1242,8 +1255,19 @@ cmd_sync_pages() {
 cmd_generate_page() {
     local input="${1:-}"
     local page_name="${2:-}"
-    [ -z "$input" ] || [ -z "$page_name" ] && die "Usage: pp generate-page <project> <Page-Name>"
-    
+    if [ -z "$input" ] || [ -z "$page_name" ]; then
+        die "Usage: pp generate-page <project> <Page-Name>"
+    fi
+
+    # Validate page_name before it flows into filenames + heredocs.
+    # Allows letters, numbers, spaces, dashes, underscores, dots — but
+    # rejects shell metacharacters AND path-traversal sequences (`..`,
+    # `/`, `\\`) that could escape the page directory.
+    validate_identifier "Page name" "$page_name" '^[A-Za-z0-9 _.-]+$'
+    case "$page_name" in
+        *..*|*/*|*\\*) die "Page name may not contain '..', '/', or backslash: '$page_name'" ;;
+    esac
+
     local name
     name=$(resolve_project "$input") || die "Unknown project: $input"
     load_project "$name"
@@ -1370,9 +1394,14 @@ EOF
             
             local issue_url=""
             if [ "$board_mode" = "github" ] && [ "$has_gh" = "1" ]; then
-                issue_url=$(gh issue create --title "$title" --body "Task initiated via pp-sync journal." --label "automated-journal" 2>/dev/null)
+                # Filter to just the issue URL — older `gh` versions and
+                # some non-TTY contexts emit informational lines to stdout
+                # alongside the URL. Mirrors the gitlab branch.
+                issue_url=$(gh issue create --title "$title" --body "Task initiated via pp-sync journal." --label "automated-journal" 2>/dev/null \
+                    | grep -oE 'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+' | head -1 || true)
             elif [ "$board_mode" = "gitlab" ] && [ "$has_glab" = "1" ]; then
-                issue_url=$(glab issue create --title "$title" --description "Task initiated via pp-sync journal." 2>/dev/null | grep -o 'https://[^ ]*')
+                issue_url=$(glab issue create --title "$title" --description "Task initiated via pp-sync journal." 2>/dev/null \
+                    | grep -oE 'https://gitlab\.com/[A-Za-z0-9_./-]+/issues/[0-9]+' | head -1 || true)
             fi
 
             # Defense in depth: even though gh/glab created this URL on
@@ -1399,12 +1428,17 @@ EOF
             local attr=""
             [ "${AI_ATTR:-yes}" = "yes" ] && attr=" [AI-Assisted]"
 
-            # Validate the issue URL BEFORE writing anything to JOURNAL.md.
-            # If the URL is malformed or cross-repo, we abort with no
-            # side effects rather than leaving a stale note in the file.
+            # Find the URL written by the most recent `pp journal open`.
+            # Specifically match `^Issue: https://...` lines that the open
+            # subcommand writes — NOT arbitrary URLs that may appear in
+            # user notes (e.g. "see also https://other/repo/issues/5").
+            # This prevents lockout: a single inline cross-repo reference
+            # in a note used to make subsequent `note`/`close` permanently
+            # refuse to operate.
             local last_issue=""
             if [ -f "$REPO/JOURNAL.md" ]; then
-                last_issue=$(grep -oE 'https://(github|gitlab)\.com/[^ )]+' "$REPO/JOURNAL.md" | tail -1 || true)
+                last_issue=$(grep -E '^Issue: https://(github|gitlab)\.com/' "$REPO/JOURNAL.md" \
+                    | tail -1 | sed 's/^Issue: //' || true)
             fi
             if [ -n "$last_issue" ]; then
                 validate_issue_url_for_current_repo "$last_issue"
@@ -1427,11 +1461,13 @@ EOF
         close)
             local summary="${1:-}"
 
-            # Validate URL before writing the close marker (same rationale
-            # as note: avoid leaving stale entries when validation aborts).
+            # Same as `note`: only consider URLs written by `pp journal
+            # open` (lines beginning with `Issue: `), not arbitrary URLs
+            # in user-authored notes.
             local last_issue=""
             if [ -f "$REPO/JOURNAL.md" ]; then
-                last_issue=$(grep -oE 'https://(github|gitlab)\.com/[^ )]+' "$REPO/JOURNAL.md" | tail -1 || true)
+                last_issue=$(grep -E '^Issue: https://(github|gitlab)\.com/' "$REPO/JOURNAL.md" \
+                    | tail -1 | sed 's/^Issue: //' || true)
             fi
             if [ -n "$last_issue" ]; then
                 validate_issue_url_for_current_repo "$last_issue"
