@@ -76,6 +76,35 @@ class AuditState:
         self.findings.append(Finding(severity, code, title, detail, location))
 
 
+def iter_localized_page_files(page_dir: Path, suffix: str) -> list[Path]:
+    """Return localized page assets under content-pages/, including <lang>/ nesting."""
+    content_pages = page_dir / "content-pages"
+    if not content_pages.is_dir():
+        return []
+    localized_files: list[Path] = []
+    tail = suffix.lstrip(".")
+    for cp_file in content_pages.rglob("*"):
+        if cp_file.is_file() and re.search(rf"\.{re.escape(tail)}$", cp_file.name):
+            localized_files.append(cp_file)
+    return localized_files
+
+
+def inline_page_script_sources(state: AuditState) -> list[tuple[Path, str]]:
+    """Return inline <script> blocks from page HTML for API/security checks."""
+    scripts: list[tuple[Path, str]] = []
+    script_re = re.compile(r"<script\b[^>]*>(.*?)</script>", re.IGNORECASE | re.DOTALL)
+    for path in state.page_html_files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for match in script_re.finditer(text):
+            body = match.group(1)
+            if body.strip():
+                scripts.append((path, body))
+    return scripts
+
+
 # ---------------------------------------------------------------------------
 # YAML parsing
 # ---------------------------------------------------------------------------
@@ -767,15 +796,7 @@ def check_base_vs_localized_divergence(state: AuditState) -> None:
             continue
         for suffix in role_suffixes:
             base_files = [p for p in page_dir.iterdir() if p.is_file() and p.name.endswith(suffix)]
-            content_pages = page_dir / "content-pages"
-            localized_files: list[Path] = []
-            if content_pages.is_dir():
-                # Localized pattern: <Page>.<lang>.<suffix-tail>
-                # e.g. Customers.en-US.webpage.copy.html
-                tail = suffix.lstrip(".")  # webpage.copy.html
-                for cp_file in content_pages.iterdir():
-                    if cp_file.is_file() and re.search(rf"\.{re.escape(tail)}$", cp_file.name):
-                        localized_files.append(cp_file)
+            localized_files = iter_localized_page_files(page_dir, suffix)
             if not localized_files:
                 continue
             # Compare sizes: base "empty" if missing or under 50 bytes (whitespace/comment threshold)
@@ -840,11 +861,16 @@ def check_webapi_without_safeajax(state: AuditState) -> None:
         "getTokenDeferred",
         "safeAjax",
     )
+    js_sources: list[tuple[Path, str]] = []
     for js in state.custom_js:
         try:
             text = js.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        js_sources.append((js, text))
+    js_sources.extend(inline_page_script_sources(state))
+
+    for source_path, text in js_sources:
         if not api_call_re.search(text):
             continue
         if any(signal in text for signal in safeajax_signals):
@@ -857,7 +883,7 @@ def check_webapi_without_safeajax(state: AuditState) -> None:
             "This file makes Web API calls but doesn't reference the `__RequestVerificationToken` "
             "header, `window.shell.getTokenDeferred()`, or a `safeAjax` helper. Power Pages will "
             "return 403 without the token. The token may live in a sibling file — verify before fixing.",
-            location=str(js),
+            location=str(source_path),
         )
 
 
@@ -879,8 +905,8 @@ def check_base_vs_localized_divergence_content(state: AuditState) -> None:
             continue
         for suffix in role_suffixes:
             base_files = [p for p in page_dir.iterdir() if p.is_file() and p.name.endswith(suffix)]
-            content_pages = page_dir / "content-pages"
-            if not content_pages.is_dir() or not base_files:
+            localized_files = iter_localized_page_files(page_dir, suffix)
+            if not localized_files or not base_files:
                 continue
             base = base_files[0]
             base_size = base.stat().st_size
@@ -888,9 +914,7 @@ def check_base_vs_localized_divergence_content(state: AuditState) -> None:
                 # Empty/near-empty base is mode A (INFO-005), not B
                 continue
             tail = suffix.lstrip(".")
-            for cp_file in content_pages.iterdir():
-                if not (cp_file.is_file() and re.search(rf"\.{re.escape(tail)}$", cp_file.name)):
-                    continue
+            for cp_file in localized_files:
                 cp_size = cp_file.stat().st_size
                 if cp_size < 200:
                     continue

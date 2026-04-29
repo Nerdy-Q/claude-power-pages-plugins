@@ -201,6 +201,48 @@ class AuditSecurityChecksTest(unittest.TestCase):
         report = self.run_audit(site_dir)
         self.assertNotIn("WRN-011", self.finding_codes(report))
 
+    def test_inline_page_script_api_call_without_token_is_flagged(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+
+        root = Path(temp_dir.name)
+        site_dir = root / "sample-site---sample-site"
+        page_dir = site_dir / "web-pages" / "sample-page"
+
+        page_dir.mkdir(parents=True)
+        (site_dir / "website.yml").write_text("adx_name: Sample Site\n", encoding="utf-8")
+        (page_dir / "Sample-Page.webpage.copy.html").write_text(
+            textwrap.dedent(
+                """\
+                <div>Sample</div>
+                <script>
+                fetch("/_api/acme_cases?$select=acme_name");
+                </script>
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        report = self.run_audit(site_dir)
+        self.assertIn("WRN-004", self.finding_codes(report))
+
+    def test_nested_localized_content_page_is_checked_for_blank_base(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+
+        root = Path(temp_dir.name)
+        site_dir = root / "sample-site---sample-site"
+        localized_dir = site_dir / "web-pages" / "sample-page" / "content-pages" / "en-US"
+        page_dir = localized_dir.parent.parent
+
+        localized_dir.mkdir(parents=True)
+        (site_dir / "website.yml").write_text("adx_name: Sample Site\n", encoding="utf-8")
+        (page_dir / "Sample-Page.webpage.copy.html").write_text("", encoding="utf-8")
+        (localized_dir / "Sample-Page.en-US.webpage.copy.html").write_text("X" * 300, encoding="utf-8")
+
+        report = self.run_audit(site_dir)
+        self.assertIn("INFO-005", self.finding_codes(report))
+
 
 if __name__ == "__main__":
     unittest.main()
