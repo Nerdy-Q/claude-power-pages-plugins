@@ -77,7 +77,7 @@ Options:
 
 EOF
   read -r -p "Continue with bulk upload? [y/N] " ans
-  [ "${ans,,}" = "y" ] || { echo "Aborted."; exit 0; }
+  [ "$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')" = "y" ] || { echo "Aborted."; exit 0; }
 fi
 
 # 4. Upload (or validate)

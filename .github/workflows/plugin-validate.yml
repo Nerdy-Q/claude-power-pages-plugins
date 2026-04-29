@@ -166,7 +166,10 @@ jobs:
 
           link_re = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
           all_ok = True
-          for md in Path("plugins").glob("**/*.md"):
+          md_files = list(Path("plugins").glob("**/*.md")) + [
+              p for p in Path(".").glob("*.md") if p.is_file()
+          ]
+          for md in md_files:
               text = md.read_text()
               for match in link_re.finditer(text):
                   target = match.group(1).split("#")[0]
