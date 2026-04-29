@@ -2,6 +2,30 @@
 
 All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
 
+## [2.2.0] — 2026-04-29
+
+### Added (pp-portal v2.1.0)
+- **`references/recipes/`** — five step-by-step walkthroughs (1,608 lines total) covering complete production patterns end-to-end:
+  - `paginated-list-page.md` — server-rendered list with search and pagination
+  - `hybrid-form-with-safeajax.md` — Liquid form chrome + JS Web API submit
+  - `dependent-dropdown.md` — cascading select boxes via `/_api/`
+  - `file-upload-annotations.md` — multi-file upload via `/_api/annotations`
+  - `role-gated-section.md` — show/hide UI by Web Role (server-side + defensive client)
+- New "Recipes" section in SKILL.md routing to all five.
+
+### Added (pp-sync v1.4.0)
+- **`pp diff <project>`** subcommand — preview what `pp up` would push before running. Categorizes changed files (Liquid pages, JS, CSS, config, permissions, site settings, etc.), counts each category, warns on bulk-upload risk. Optional flags: `--diff` (line-level git diff stat), `--names-only` (pipe-friendly).
+
+### Added (pp-permissions-audit v1.3.0)
+- **`examples/git-hooks/`** — drop-in pre-commit hook template with one-step installer:
+  - `pre-commit` — auto-detects site folder, runs `audit.py --severity ERROR --exit-code`, blocks commit on findings
+  - `install-hook.sh` — backs up existing hook, symlinks template, chmods +x
+  - `README.md` — install/bypass/uninstall + pre-commit-vs-CI rationale
+- `CI.md` updated with full "Git pre-commit hook" section including pre-commit-vs-CI comparison table.
+
+### Changed
+- CHANGELOG.md updated for v2.2.0.
+
 ## [2.1.0] — 2026-04-29
 
 ### Added
@@ -100,6 +124,7 @@ Static analysis of Power Pages portal permissions and Web API configuration. Std
 - Per-plugin manifests + READMEs
 - `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
 
+[2.2.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v2.2.0
 [2.1.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v2.0.0
 [1.2.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v1.2.0

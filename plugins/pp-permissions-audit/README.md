@@ -38,6 +38,7 @@ The skill knows where the cached `audit.py` lives and will invoke it automatical
 - `references/api-config.md` — Power Pages Web API site setting reference (deep)
 - `CI.md` — GitHub Actions / Azure Pipelines / pre-commit hook integration
 - `examples/github-actions/power-pages-audit.yml` — drop-in workflow template
+- `examples/git-hooks/` — git pre-commit hook template + installer (blocks commits on ERROR-class findings)
 
 ## What it catches in production
 

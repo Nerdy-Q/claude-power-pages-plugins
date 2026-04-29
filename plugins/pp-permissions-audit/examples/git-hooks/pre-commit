@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Power Pages permissions audit — git pre-commit hook
+#
+# Drop this into your Power Pages project's repo at:
+#   .git/hooks/pre-commit
+#
+# Or use the bundled installer:
+#   ~/.claude/plugins/cache/nq-claude-plugins/pp-permissions-audit/<version>/examples/git-hooks/install-hook.sh
+#
+# It auto-detects the Power Pages site folder (the first `<name>---<name>/`
+# containing website.yml + web-pages/), runs `audit.py --severity ERROR
+# --exit-code` against it, and blocks the commit on ERROR-class findings.
+#
+# Non-Power-Pages repos are a no-op (the hook exits 0 silently).
+#
+# To bypass on a one-off (NOT recommended): `git commit --no-verify`
+# To uninstall: `rm .git/hooks/pre-commit` (or restore the .bak that
+#               install-hook.sh wrote alongside it).
+
+set -euo pipefail
+
+# ----- 1. Detect the site folder -------------------------------------------
+# Find the first directory matching <name>---<name>/ that contains
+# website.yml + web-pages/. If multiple sites exist (multi-division repo),
+# the hook audits the first match — adjust SITE_DIR_OVERRIDE explicitly to
+# audit a specific one.
+SITE_DIR="${SITE_DIR_OVERRIDE:-}"
+if [ -z "$SITE_DIR" ]; then
+  SITE_DIR=$(find . -maxdepth 6 -type d -name '*---*' 2>/dev/null | while read -r d; do
+    if [ -f "$d/website.yml" ] && [ -d "$d/web-pages" ]; then
+      echo "$d"
+      break
+    fi
+  done)
+fi
+
+if [ -z "$SITE_DIR" ]; then
+  # Not a Power Pages repo — silent no-op so the hook is safe to install
+  # globally (e.g. via core.hooksPath) without breaking unrelated repos.
+  exit 0
+fi
+
+# ----- 2. Locate the audit script ------------------------------------------
+# Prefer the newest installed version of the plugin cache. Fall back to a
+# plain `audit.py` on PATH for adventurous users.
+AUDIT_SCRIPT=""
+PLUGIN_CACHE="$HOME/.claude/plugins/cache/nq-claude-plugins/pp-permissions-audit"
+if [ -d "$PLUGIN_CACHE" ]; then
+  # `sort -V` orders semver-ish names (1.2.0 < 1.10.0 correctly); tail -1
+  # picks the newest. Glob expands across version directories.
+  AUDIT_SCRIPT=$(find "$PLUGIN_CACHE" -maxdepth 4 -path '*/skills/pp-permissions-audit/scripts/audit.py' 2>/dev/null \
+                 | sort -V | tail -1)
+fi
+
+if [ -z "$AUDIT_SCRIPT" ] || [ ! -f "$AUDIT_SCRIPT" ]; then
+  cat <<'EOF' >&2
+pp-permissions-audit pre-commit hook: audit.py not found.
+
+Expected location:
+  ~/.claude/plugins/cache/nq-claude-plugins/pp-permissions-audit/<version>/skills/pp-permissions-audit/scripts/audit.py
+
+Install the plugin via Claude Code:
+  /plugin install nq-claude-plugins/pp-permissions-audit
+
+Or bypass this hook on a one-off (NOT recommended):
+  git commit --no-verify
+EOF
+  exit 1
+fi
+
+# ----- 3. Run the gate (ERROR-class only) ----------------------------------
+echo "pp-permissions-audit: scanning $SITE_DIR for ERROR-class findings..."
+
+if python3 "$AUDIT_SCRIPT" "$SITE_DIR" --severity ERROR --exit-code >/dev/null 2>&1; then
+  echo "pp-permissions-audit: 0 ERROR-class findings — commit OK."
+  exit 0
+fi
+
+# ----- 4. Failure: re-run for output and explain -------------------------
+# Re-run without --exit-code so the user sees the actual findings.
+echo
+python3 "$AUDIT_SCRIPT" "$SITE_DIR" --severity ERROR || true
+
+cat <<EOF >&2
+
+pp-permissions-audit: ERROR-class findings — commit blocked.
+
+Next steps:
+  1. See full report (incl. WARN + INFO):
+       python3 "$AUDIT_SCRIPT" "$SITE_DIR" --severity WARN -o report.md
+
+  2. Fix the ERROR-class findings, then re-run:
+       git commit
+
+  3. Bypass on a one-off (NOT recommended — CI will still gate):
+       git commit --no-verify
+
+ERROR-class findings indicate definite security or runtime bugs (e.g.
+Web API enabled with no Read permission, anonymous-role writes on
+sensitive tables). They should not be deferred.
+EOF
+exit 1

@@ -37,6 +37,16 @@ This skill covers the **classic portal hybrid pattern**. For adjacent work, defe
 
 When a task spans this skill plus one of the above (e.g. "build a portal page that lists records from a new table"), do the **schema work in the dataverse plugin first**, then come back here for the portal-side rendering.
 
+## Recipes
+
+For step-by-step walkthroughs of common patterns, see `references/recipes/`:
+
+- [recipes/paginated-list-page.md](references/recipes/paginated-list-page.md) — server-rendered list page with search and pagination
+- [recipes/hybrid-form-with-safeajax.md](references/recipes/hybrid-form-with-safeajax.md) — Liquid form + JS Web API submit
+- [recipes/dependent-dropdown.md](references/recipes/dependent-dropdown.md) — cascading select boxes via /_api/
+- [recipes/file-upload-annotations.md](references/recipes/file-upload-annotations.md) — multi-file upload via /_api/annotations
+- [recipes/role-gated-section.md](references/recipes/role-gated-section.md) — show/hide UI by Web Role
+
 ## Power Pages classic site anatomy
 
 A `pac paportal download` produces this canonical structure:

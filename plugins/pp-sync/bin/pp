@@ -557,6 +557,153 @@ cmd_up() {
 }
 
 # ===========================================================================
+# Subcommand: diff (preview what `pp up` would push)
+# ===========================================================================
+
+cmd_diff() {
+    local input="${1:-}"
+    local show_diff=0 names_only=0 bulk_threshold=50
+    shift || true
+    for arg in "$@"; do
+        case "$arg" in
+            --diff) show_diff=1 ;;
+            --names-only) names_only=1 ;;
+            --bulk-threshold=*) bulk_threshold="${arg#*=}" ;;
+            *) die "Unknown arg: $arg" ;;
+        esac
+    done
+
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    load_project "$name"
+
+    cd_repo_root "$REPO"
+
+    # Collect changed (tracked) + untracked files scoped to SITE_DIR
+    local tracked untracked all_changes
+    tracked=$(git diff --name-only HEAD -- "$SITE_DIR" 2>/dev/null || true)
+    untracked=$(git ls-files --others --exclude-standard -- "$SITE_DIR" 2>/dev/null || true)
+    all_changes=$(printf '%s\n%s\n' "$tracked" "$untracked" | grep -v '^$' | sort -u || true)
+
+    # --names-only mode: bare list, skip everything else
+    if [ "$names_only" = "1" ]; then
+        [ -n "$all_changes" ] && printf '%s\n' "$all_changes"
+        return 0
+    fi
+
+    # Header — try to read live env via confirm_pac_profile if PAC is available;
+    # otherwise fall back to ENV_URL from conf.
+    info "${BOLD}Diff preview: $name${RST}"
+    echo "  Site dir:   $SITE_DIR"
+    local actual_env=""
+    if command -v pac >/dev/null 2>&1 \
+        && pac auth list 2>/dev/null | grep -qE "UNIVERSAL[[:space:]]+${PROFILE}\\b"; then
+        actual_env=$(confirm_pac_profile "$PROFILE" 2>/dev/null || true)
+    fi
+    if [ -z "$actual_env" ]; then
+        actual_env="${ENV_URL:-(unknown — pac profile not active)}"
+        echo "  Env (conf): $actual_env"
+    fi
+    echo
+
+    if [ -z "$all_changes" ]; then
+        ok "No changes vs HEAD in $SITE_DIR — nothing to upload."
+        return 0
+    fi
+
+    # Categorize. Each file lands in exactly one bucket (first match wins).
+    local cat_liquid="" cat_js="" cat_css="" cat_metadata=""
+    local cat_perms="" cat_settings="" cat_markers=""
+    local cat_forms="" cat_lists="" cat_other=""
+
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        case "$f" in
+            *.webpage.copy.html|*.webpage.summary.html|*.webtemplate.source.html|*.contentsnippet.value.html)
+                cat_liquid+="$f"$'\n' ;;
+            *.webpage.custom_javascript.js)
+                cat_js+="$f"$'\n' ;;
+            *.webpage.custom_css.css)
+                cat_css+="$f"$'\n' ;;
+            *.webfile.yml)
+                # Web files — can be JS or CSS payloads. Peek at the sibling file
+                # extension if we can; otherwise classify generically.
+                local sibling_dir sibling_base
+                sibling_dir=$(dirname "$f")
+                sibling_base=$(basename "$f" .webfile.yml)
+                if compgen -G "$sibling_dir/$sibling_base.js" >/dev/null 2>&1; then
+                    cat_js+="$f"$'\n'
+                elif compgen -G "$sibling_dir/$sibling_base.css" >/dev/null 2>&1; then
+                    cat_css+="$f"$'\n'
+                else
+                    cat_other+="$f"$'\n'
+                fi
+                ;;
+            *.tablepermission.yml|*.webrole.yml)
+                cat_perms+="$f"$'\n' ;;
+            *sitesetting.yml|*/site-settings/*)
+                cat_settings+="$f"$'\n' ;;
+            *sitemarker.yml|*/sitemarkers/*)
+                cat_markers+="$f"$'\n' ;;
+            */basic-forms/*|*/advanced-forms/*)
+                cat_forms+="$f"$'\n' ;;
+            */entity-lists/*)
+                cat_lists+="$f"$'\n' ;;
+            *.webpage.yml|*.webtemplate.yml|*.contentsnippet.yml|*.yml)
+                cat_metadata+="$f"$'\n' ;;
+            *)
+                cat_other+="$f"$'\n' ;;
+        esac
+    done <<< "$all_changes"
+
+    # Print a category section if non-empty.
+    print_category() {
+        local label="$1" body="$2"
+        [ -z "$body" ] && return 0
+        local count
+        count=$(printf '%s' "$body" | grep -c .)
+        echo "${BOLD}$label${RST}  ($count)"
+        printf '%s' "$body" | sed 's/^/  /'
+        echo
+    }
+
+    print_category "Liquid + HTML pages"    "$cat_liquid"
+    print_category "Custom JS"              "$cat_js"
+    print_category "Custom CSS"             "$cat_css"
+    print_category "Config metadata"        "$cat_metadata"
+    print_category "Permissions"            "$cat_perms"
+    print_category "Site settings"          "$cat_settings"
+    print_category "Sitemarkers"            "$cat_markers"
+    print_category "Forms"                  "$cat_forms"
+    print_category "Lists"                  "$cat_lists"
+    print_category "Other"                  "$cat_other"
+
+    # Summary
+    local total
+    total=$(printf '%s\n' "$all_changes" | grep -c . || true)
+    echo "${BOLD}Total changed files:${RST} $total"
+
+    # Bulk-upload risk warning — same threshold and intent as pp up
+    if [ "$total" -gt "$bulk_threshold" ]; then
+        echo
+        warn "Bulk upload risk ($total > $bulk_threshold) — portal cache may hang."
+        info "Recommend incremental upload or --validate-only first."
+    fi
+
+    # Optional: line-level deltas via git diff --stat
+    if [ "$show_diff" = "1" ]; then
+        echo
+        echo "${BOLD}## Line-level deltas (tracked changes only)${RST}"
+        git diff --stat HEAD -- "$SITE_DIR" || true
+    fi
+
+    # Next steps
+    echo
+    info "Next: ${BOLD}pp up $name${RST} would push these files via 'pac paportal upload'."
+    info "Validate first with: ${BOLD}pp up $name --validate-only${RST}"
+}
+
+# ===========================================================================
 # Subcommand: doctor
 # ===========================================================================
 
@@ -1000,6 +1147,7 @@ ENV / PROJECT SWITCHING
 SYNC OPERATIONS  (project arg required, alias OK)
     pp down <project> [--no-clean]
     pp up   <project> [--validate-only] [--force-bulk] [--bulk-threshold=N]
+    pp diff <project> [--diff] [--names-only] [--bulk-threshold=N]
     pp doctor <project>
     pp solution-down <project> [solution]
     pp solution-up   <project> [solution]
@@ -1044,6 +1192,7 @@ main() {
         status)        cmd_status "$@" ;;
         down|d)        cmd_down "$@" ;;
         up|u)          cmd_up "$@" ;;
+        diff)          cmd_diff "$@" ;;
         doctor)        cmd_doctor "$@" ;;
         commit)        die "Use git directly or copy templates/commit.sh — pp commit not yet implemented in CLI" ;;
         solution-down|sol-down) cmd_solution_down "$@" ;;

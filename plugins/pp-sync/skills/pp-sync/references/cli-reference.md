@@ -47,6 +47,7 @@ All sync commands take a project as the first argument. The project arg can be t
 |---|---|
 | `pp down <project> [--no-clean]` | Download portal from Dataverse with auto noise-stash |
 | `pp up <project> [--validate-only] [--force-bulk] [--bulk-threshold=N]` | Upload portal changes; warns if >50 changed files |
+| `pp diff <project> [--diff] [--names-only] [--bulk-threshold=N]` | Preview what `pp up` would push — categorized changed-file list, no upload |
 | `pp doctor <project>` | Health check — tooling, auth, structure, content counts |
 | `pp solution-down <project> [solution]` | Export Dataverse solution + unpack |
 | `pp solution-up <project> [solution]` | Pack + import Dataverse solution (DESTRUCTIVE) |

@@ -115,6 +115,39 @@ steps:
     condition: always()
 ```
 
+## Git pre-commit hook
+
+A ready-to-use pre-commit hook ships at [`examples/git-hooks/`](examples/git-hooks/). It auto-detects the site folder, runs `audit.py --severity ERROR --exit-code`, and blocks the commit on ERROR-class findings.
+
+Install from the root of your Power Pages project's git repo:
+
+```bash
+~/.claude/plugins/cache/nq-claude-plugins/pp-permissions-audit/<version>/examples/git-hooks/install-hook.sh
+```
+
+The installer backs up any existing `.git/hooks/pre-commit`, symlinks the bundled template into place, and chmods it executable. Test it without committing real work:
+
+```bash
+git commit --allow-empty -m 'test pp-audit hook'
+```
+
+To bypass on a one-off (NOT recommended): `git commit --no-verify`.
+
+### Pre-commit vs CI: which is source of truth?
+
+Use **both**. They cover different stages of the dev loop:
+
+| | Pre-commit (local) | CI (remote) |
+|---|---|---|
+| **When it runs** | On every `git commit` | On every push / PR |
+| **Speed** | Sub-second on a typical site | 30s–60s round-trip |
+| **Bypassable** | Yes, with `--no-verify` | No (PRs are blocked) |
+| **Purpose** | Fast local feedback, save CI round-trips | Source of truth, gates merge |
+
+The pre-commit hook is a **convenience** — it catches obvious issues before you push, so you don't burn a CI run on something fixable in seconds. The GitHub Actions workflow is the **gate**: even if a developer bypasses the hook locally, CI will still fail the PR. Don't rely on the hook alone.
+
+If your repo already uses the [pre-commit framework](https://pre-commit.com), see [`examples/git-hooks/README.md`](examples/git-hooks/README.md) for a `.pre-commit-config.yaml` snippet (the framework expects a different shape than a raw `.git/hooks/pre-commit` script).
+
 ## Generic CI / shell script
 
 If your CI is generic shell (Jenkins, CircleCI, GitLab, Buildkite):
@@ -138,22 +171,6 @@ python3 /tmp/audit.py "$SITE_DIR" --severity ERROR --exit-code
 
 # 4. Generate full report (always, even on failure)
 python3 /tmp/audit.py "$SITE_DIR" -o audit-report.md
-```
-
-## Pre-commit hook
-
-For a local-only gate on every commit (run before push):
-
-```bash
-# .git/hooks/pre-commit
-#!/usr/bin/env bash
-SCRIPT=$(find ~/.claude/plugins/cache/nq-claude-plugins/pp-permissions-audit -name audit.py | sort -V | tail -1)
-SITE_DIR=$(find . -maxdepth 6 -type d -name '*---*' | head -1)
-python3 "$SCRIPT" "$SITE_DIR" --severity ERROR --exit-code || {
-  echo "Audit failed. Fix ERROR-class findings before committing."
-  echo "Run 'pp audit <project>' to see the full report."
-  exit 1
-}
 ```
 
 ## Reading the JSON output
