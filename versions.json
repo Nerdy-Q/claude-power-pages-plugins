@@ -1,6 +1,7 @@
 {
     "marketplace": {
-        "name": "nq-claude-power-pages-plugins"
+        "name": "nq-claude-power-pages-plugins",
+        "version": "2.6.1"
     },
     "plugins": {
         "pp-portal": "2.2.1",
