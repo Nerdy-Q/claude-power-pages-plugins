@@ -73,16 +73,29 @@ claude plugin validate .                                        # marketplace
 
 Use [versions.json](versions.json) as the single source of truth for the live versioned values currently managed by the repo:
 
-- per-plugin manifest versions
-- repo-tag pins used in shipped CI/docs templates
+| Field | What it controls |
+|---|---|
+| `marketplace.version` | The umbrella release version. Must match the topmost `## [X.Y.Z]` header in `CHANGELOG.md` — `sync_versions.py` enforces this. |
+| `plugins.<name>` | Per-plugin manifest versions (auto-propagated into each `plugins/<name>/.claude-plugin/plugin.json`). |
+| `docs.pp_permissions_audit_ci_ref` | Pinned tag used in `pp-permissions-audit/CI.md` and the shipped GitHub Actions template. |
 
-After changing a value there, run:
+After changing any value, run:
 
 ```bash
 python3 scripts/sync_versions.py
 ```
 
-CI runs `python3 scripts/sync_versions.py --check`, so version drift in those managed files will fail validation.
+CI runs `python3 scripts/sync_versions.py --check`, so version drift will fail validation. The marketplace.version ↔ CHANGELOG header check is one-way: the script reads CHANGELOG (historical record, never auto-rewritten) and refuses if `versions.json` disagrees.
+
+### Cutting a release
+
+1. Update `versions.json` — bump `marketplace.version` and any per-plugin versions that advanced.
+2. Add a new `## [X.Y.Z] — YYYY-MM-DD` section at the top of `CHANGELOG.md` with full notes.
+3. Add the matching `[X.Y.Z]: https://github.com/...` link reference at the bottom.
+4. Run `python3 scripts/sync_versions.py` to propagate per-plugin versions into manifests + auto-update `pp-permissions-audit/CI.md` and the GitHub Actions template.
+5. Commit, open PR, let CI verify.
+6. After merge, tag `vX.Y.Z` and `git push --tags`.
+7. Create a GitHub Release with notes (use the CHANGELOG section as the source).
 
 ### Local marketplace install
 
@@ -91,13 +104,35 @@ claude plugin marketplace add /path/to/claude-power-pages-plugins
 claude plugin install pp-portal@nq-claude-power-pages-plugins
 ```
 
-## Near-term hardening
+## Test suites
 
-The audit now has regression tests. The next test surface worth adding is `pp-sync/bin/pp`:
+The marketplace runs four test suites in CI. Run any of them locally:
 
-- project-config generation fixtures (`pp setup`, `pp project add`)
-- changed-file counting and bulk-upload warnings
-- repo-local vs plugin-cache audit fallback behavior
+```bash
+# pp-permissions-audit — Python unit tests (audit.py rule logic)
+python3 -m unittest plugins/pp-permissions-audit/skills/pp-permissions-audit/scripts/test_audit.py
+
+# pp-sync — bash regression tests
+bash plugins/pp-sync/tests/test_load_project.sh           # 12 cases — strict conf parser
+bash plugins/pp-sync/tests/test_register_atomic.sh        # 6 cases — pp project add atomicity
+bash plugins/pp-sync/tests/test_journal_url_validation.sh # 16 cases — journal URL hardening
+```
+
+The bash suites use fixture files under `plugins/pp-sync/tests/fixtures/` and a source-safe pattern that loads `bin/pp` without dispatching commands. See `plugins/pp-sync/tests/README.md` for fixture conventions and how to add a new test.
+
+When adding a new `pp` subcommand or registration path, add fixtures + assertions to the matching suite. The suites are wired into `.github/workflows/plugin-validate.yml` automatically.
+
+## Static analysis
+
+CI runs ShellCheck at `--severity=warning` against every shell script. Install locally:
+
+```bash
+brew install shellcheck     # macOS
+apt-get install shellcheck  # Debian/Ubuntu
+shellcheck --severity=warning plugins/pp-sync/bin/pp
+```
+
+All shipped scripts pass clean. PRs that introduce SC2086 (unquoted vars), SC2155 (`local x=$(cmd)`), SC2164 (bare `cd`), or other warning-class issues will fail CI.
 
 ## Conventions
 
