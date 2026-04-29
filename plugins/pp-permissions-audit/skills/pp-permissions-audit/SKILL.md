@@ -68,9 +68,8 @@ See [checks.md](references/checks.md) for the full list. Highlights:
 | WARN | Custom JS has `<lookup>@odata.bind` without `_contact` / `_account` suffix on a polymorphic field — runtime 400 |
 | WARN | Web Role exists but no Table Permission references it |
 | WARN | `Webapi/<entity>/Fields = *` on an entity that has field-secured readable columns |
-| WARN | Content Snippet is referenced in Liquid but not defined locally |
-| WARN | **Liquid references `snippets['Name']` that isn't defined locally** |
-| WARN | **Basic Form references a field that does not exist in the schema** |
+| WARN | Liquid references `snippets['Name']` that isn't defined locally (also covers Sitemarkers) |
+| WARN | Basic Form references a field that does not exist in the schema |
 | INFO | **N+1 query pattern detected in Liquid (lookup inside `{% for %}`)** |
 | INFO | **`{% fetchxml %}` block is missing a `count` attribute** |
 | WARN | **Site Setting appears to contain a secret and is visible to portal** |

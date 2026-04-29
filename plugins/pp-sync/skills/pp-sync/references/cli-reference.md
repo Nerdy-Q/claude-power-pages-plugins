@@ -115,7 +115,7 @@ Example:
 ```bash
 # ~/.config/nq-pp-sync/projects/anchor.conf
 NAME="Acme Portal"
-REPO="$HOME/Projects/Contracts/Acme Corp"
+REPO="~/Projects/Contracts/Acme Corp"
 SITE_DIR="acme-portal-operations/acme---acme"
 PROFILE="acme-client-dev"
 WEBSITE_ID="00000000-0000-0000-0000-000000000000"

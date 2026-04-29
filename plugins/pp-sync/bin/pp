@@ -110,7 +110,12 @@ format_solutions_array() {
     local input="$1" s s_trim entries=""
     local IFS=','
     for s in $input; do
-        s_trim=$(echo "$s" | xargs)
+        # Pure whitespace trim via parameter expansion. `xargs` was used
+        # previously but it does shell-style word-splitting and quote-
+        # stripping, which mangles multi-word inputs and produces
+        # confusing error messages.
+        s_trim="${s#"${s%%[![:space:]]*}"}"
+        s_trim="${s_trim%"${s_trim##*[![:space:]]}"}"
         [ -z "$s_trim" ] && continue
         validate_identifier "Solution name" "$s_trim" '^[A-Za-z0-9_.-]+$'
         entries+="\"$s_trim\" "
@@ -154,7 +159,11 @@ resolve_project() {
     # Alias lookup — file format: "alias=target" one per line
     if [ -f "$PP_ALIASES_FILE" ]; then
         local target
-        target=$(grep -E "^${input}=" "$PP_ALIASES_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+        # `|| true` on the pipeline: under bash strict mode (`set -euo
+        # pipefail`), grep with no match exits 1, pipefail propagates,
+        # and the assignment would abort the function before the
+        # prefix-match fallback below could run.
+        target=$(grep -E "^${input}=" "$PP_ALIASES_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true)
         if [ -n "$target" ] && [ -f "$PP_PROJECTS_DIR/$target.conf" ]; then
             echo "$target"
             return 0
@@ -216,7 +225,14 @@ load_project() {
         esac
 
         # SOLUTIONS=("a" "b") — special-case the array form. Extract each
-        # quoted token without invoking the shell on the contents.
+        # quoted token without invoking the shell on the contents. The
+        # capture is greedy so that values containing `)` (e.g. an
+        # injection payload like `$(rm -rf /)` written by an attacker
+        # trying to exploit the pre-v2.0.0 source-evaluated loader) are
+        # preserved as literal strings rather than rejected at parse
+        # time. The inner extraction loop matches each "..." token, and
+        # validation at write-time (format_solutions_array) blocks shell
+        # metacharacters from being added to a conf in the first place.
         if [[ "$line" =~ ^SOLUTIONS=\((.*)\)[[:space:]]*$ ]]; then
             SOLUTIONS=()
             local rest="${BASH_REMATCH[1]}"
@@ -255,6 +271,15 @@ load_project() {
     [ -n "$REPO" ] || die "$conf: missing REPO"
     [ -n "$SITE_DIR" ] || die "$conf: missing SITE_DIR"
     [ -n "$PROFILE" ] || die "$conf: missing PROFILE"
+
+    # Re-apply defaults for keys-with-defaults that the conf may have set
+    # to an empty string. The parser doesn't distinguish "key omitted" from
+    # `KEY=""` — both produce the empty string — so we re-default after
+    # parsing rather than during the per-line assignment.
+    [ -n "$MODEL_VERSION" ] || MODEL_VERSION="2"
+    [ -n "$SCHEMA_DIR" ] || SCHEMA_DIR="dataverse-schema"
+    [ -n "$BOARD_SYSTEM" ] || BOARD_SYSTEM="auto"
+    [ -n "$AI_ATTR" ] || AI_ATTR="yes"
 
     # Expand ~ in REPO via bash parameter expansion (no shell evaluation)
     REPO="${REPO/#~/$HOME}"
@@ -1349,7 +1374,15 @@ EOF
             elif [ "$board_mode" = "gitlab" ] && [ "$has_glab" = "1" ]; then
                 issue_url=$(glab issue create --title "$title" --description "Task initiated via pp-sync journal." 2>/dev/null | grep -o 'https://[^ ]*')
             fi
-            
+
+            # Defense in depth: even though gh/glab created this URL on
+            # the user's authenticated repo, validate before persisting
+            # to JOURNAL.md so a misconfigured CLI default-repo cannot
+            # silently seed a cross-repo URL into the journal.
+            if [ -n "$issue_url" ]; then
+                validate_issue_url_for_current_repo "$issue_url"
+            fi
+
             {
                 echo ""
                 echo "## [$(date +'%Y-%m-%d %H:%M')] TASK: $title"
@@ -1365,16 +1398,22 @@ EOF
             [ -z "$msg" ] && die "Usage: pp journal note <message>"
             local attr=""
             [ "${AI_ATTR:-yes}" = "yes" ] && attr=" [AI-Assisted]"
-            
-            info "Adding note..."
-            echo "- **Note$attr**: $msg" >> "$REPO/JOURNAL.md"
-            
-            # Post comment to issue if possible (heuristic: find last issue
-            # URL in JOURNAL.md, validated against current repo).
-            local last_issue
-            last_issue=$(grep -oE 'https://(github|gitlab)\.com/[^ )]+' "$REPO/JOURNAL.md" | tail -1 || true)
+
+            # Validate the issue URL BEFORE writing anything to JOURNAL.md.
+            # If the URL is malformed or cross-repo, we abort with no
+            # side effects rather than leaving a stale note in the file.
+            local last_issue=""
+            if [ -f "$REPO/JOURNAL.md" ]; then
+                last_issue=$(grep -oE 'https://(github|gitlab)\.com/[^ )]+' "$REPO/JOURNAL.md" | tail -1 || true)
+            fi
             if [ -n "$last_issue" ]; then
                 validate_issue_url_for_current_repo "$last_issue"
+            fi
+
+            info "Adding note..."
+            echo "- **Note$attr**: $msg" >> "$REPO/JOURNAL.md"
+
+            if [ -n "$last_issue" ]; then
                 if [[ "$last_issue" == *"github.com"* ]] && [ "$has_gh" = "1" ]; then
                     gh issue comment "$last_issue" --body "$msg$attr" >/dev/null 2>&1 \
                         || warn "Failed to post comment to $last_issue"
@@ -1387,13 +1426,21 @@ EOF
 
         close)
             local summary="${1:-}"
+
+            # Validate URL before writing the close marker (same rationale
+            # as note: avoid leaving stale entries when validation aborts).
+            local last_issue=""
+            if [ -f "$REPO/JOURNAL.md" ]; then
+                last_issue=$(grep -oE 'https://(github|gitlab)\.com/[^ )]+' "$REPO/JOURNAL.md" | tail -1 || true)
+            fi
+            if [ -n "$last_issue" ]; then
+                validate_issue_url_for_current_repo "$last_issue"
+            fi
+
             info "Closing task..."
             echo "- **CLOSED**: $summary" >> "$REPO/JOURNAL.md"
 
-            local last_issue
-            last_issue=$(grep -oE 'https://(github|gitlab)\.com/[^ )]+' "$REPO/JOURNAL.md" | tail -1 || true)
             if [ -n "$last_issue" ]; then
-                validate_issue_url_for_current_repo "$last_issue"
                 if [[ "$last_issue" == *"github.com"* ]] && [ "$has_gh" = "1" ]; then
                     gh issue comment "$last_issue" --body "Task closed: $summary" >/dev/null 2>&1 \
                         || warn "Failed to post close comment to $last_issue"
