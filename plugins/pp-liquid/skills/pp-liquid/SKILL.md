@@ -49,13 +49,24 @@ A `pac paportal download` produces this canonical structure:
 └── sitemarkers/                             # YAML — named URL anchors for Liquid
 ```
 
-## Three critical gotchas — read these first
+## Four critical gotchas — read these first
 
-### 1. Base file vs `content-pages/<lang>` file
+### 1. Base file ↔ localized file pair must stay in sync
 
-Power Pages loads the **base file** by default, **not** the `content-pages/<lang>/...` localized file. If a page renders blank, check whether the base file is empty while the localized one has all the content. **Both must stay in sync.** This is the single most common Power Pages bug.
+Power Pages stores **two physical copies** of every page asset: a base file (`<Page>.webpage.copy.html`) and one or more localized files (`content-pages/<lang>/<Page>.<lang>.webpage.copy.html`). The base is what most users get. The localized file renders only when the user requests a matching locale AND… implementation details vary.
 
-Files affected: `*.webpage.copy.html`, `*.webpage.custom_javascript.js`, `*.webpage.custom_css.css`, `*.webpage.summary.html`.
+**Two distinct failure modes:**
+
+| Mode | Symptom | What happened |
+|---|---|---|
+| **A. Empty base** | Page renders blank | The base file is empty (Studio sometimes saves edits only to localized). Audit catches this as **INFO-005**. |
+| **B. Diverged pair** | Some users see different content than others | Both files were edited at different times; they've drifted. Audit catches this as **INFO-009**. |
+
+**The maintenance rule that prevents both**: when you edit ONE file in the pair, edit the OTHER too — or use `pp sync-pages <project>` to copy one to the other in bulk. The tooling does not auto-sync.
+
+Files affected (each has a base + localized form): `*.webpage.copy.html`, `*.webpage.custom_javascript.js`, `*.webpage.custom_css.css`, `*.webpage.summary.html`.
+
+**A common workflow that creates Mode A bugs**: dev edits a page in Studio (which saves to localized only) → commits → on another machine the page renders blank because the puller's Studio didn't auto-populate the localized version of *their* base. Always sync after Studio edits. See [hybrid-page-idiom.md](references/hybrid-page-idiom.md).
 
 ### 2. DotLiquid JSON serialization breaks JavaScript
 
@@ -76,7 +87,23 @@ Files affected: `*.webpage.copy.html`, `*.webpage.custom_javascript.js`, `*.webp
 
 ### 3. Polymorphic lookup `@odata.bind` requires a suffix
 
-Customer-type fields (target Contact OR Account) need the disambiguating suffix on the navigation property, e.g. `contoso_Applicant_contact@odata.bind` or `contoso_Applicant_account@odata.bind`. Bare `contoso_Applicant@odata.bind` returns 400. Navigation property names are also **case-sensitive** and **entity-specific** — `contoso_Account@odata.bind` works on `contoso_Invoice` but not on `contoso_AbandonedTankApplication`. See [webapi-patterns.md](references/webapi-patterns.md).
+Customer-type fields (target Contact OR Account) need the disambiguating suffix on the navigation property, e.g. `contoso_Applicant_contact@odata.bind` or `contoso_Applicant_account@odata.bind`. Bare `contoso_Applicant@odata.bind` returns 400. Navigation property names are also **case-sensitive** and **entity-specific** — `contoso_Account@odata.bind` works on one entity but not on another with the same field name. See [webapi-patterns.md](references/webapi-patterns.md).
+
+### 4. Dataverse uses 4 different "names" for the same thing — and Power Pages uses different ones in different contexts
+
+Every entity has a **Logical Name** (lowercase, e.g. `acme_customer`), a **Schema Name** (often PascalCase, e.g. `acme_Customer`), a **Display Name** (`Acme Customer`), and an **Entity Set Name** (lowercase plural, e.g. `acme_customers`). Lookup columns add a fifth: their **Navigation Property Name**, which uses the schema-name casing.
+
+| Where you write the name | What name it expects |
+|---|---|
+| Web API URL: `/_api/<entityset>` | Entity Set Name (lowercase plural) |
+| Web API `$select=` / `$filter=` attribute references | Logical Name (lowercase) — for lookups, the `_<attr>_value` form |
+| Web API POST/PATCH payload field keys | Logical Name (lowercase) — for lookups, use `<NavigationProperty>@odata.bind` instead |
+| Web API `@odata.bind` and `$expand=` | **Navigation Property Name (PascalCase)** ⚠ |
+| FetchXML in Liquid (entity, attribute, link-entity, condition) | Logical Name (lowercase) — everywhere |
+
+**The trap**: if you copy `acme_contact` from Studio's Columns view, you get the Logical Name (lowercase). If you then use it as `acme_contact@odata.bind`, you get **`'acme_contact' is not a valid navigation property`** at runtime — because the navigation property is `acme_Contact` (PascalCase, matching the schema name). The error message doesn't say "casing"; it just says "not a valid".
+
+**Always read the Navigation Property name from `Entity.xml`** in your unpacked solution, the Maker Portal's **Relationships** view, or `/_api/$metadata`. Don't infer from the Logical Name. See [dataverse-naming.md](references/dataverse-naming.md) for the full cheat sheet, error-decoding table, and lookup recipes.
 
 ## Decision routing — which pattern fits this task?
 
@@ -94,6 +121,7 @@ Customer-type fields (target Contact OR Account) need the disambiguating suffix 
 
 ## Liquid-side reference
 
+- **Dataverse naming + casing rules** (the 4-name model: Logical / Schema / Display / Entity Set Name; navigation property casing; where each form is used; common-error decoding) — see [dataverse-naming.md](references/dataverse-naming.md)
 - **Objects** (`user`, `page`, `website`, `request`, `weblinks`, `snippets`, `sitemarkers`, `settings`, `now`, `params`) — see [objects-reference.md](references/objects-reference.md)
 - **Power Pages tags** (`{% fetchxml %}`, `{% entitylist %}`, `{% entityform %}`, `{% webform %}`, `{% editable %}`, `{% chart %}`, `{% include %}`, `{% block %}`/`{% extends %}`) — see [entity-tags.md](references/entity-tags.md)
 - **DotLiquid filter table** (every supported filter with examples + Power Pages-specific extensions) — see [filters-reference.md](references/filters-reference.md)

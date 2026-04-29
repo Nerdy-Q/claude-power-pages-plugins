@@ -775,6 +775,108 @@ cmd_audit() {
 }
 
 # ===========================================================================
+# Subcommand: sync-pages (copy base ↔ localized files in bulk)
+# ===========================================================================
+
+cmd_sync_pages() {
+    local input="${1:-}"
+    local direction="${2:-}"
+    shift 2 2>/dev/null || true
+
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    load_project "$name"
+    cd_repo_root "$REPO"
+
+    [ -d "$SITE_DIR/web-pages" ] || die "$SITE_DIR/web-pages does not exist"
+
+    # Pick direction
+    if [ -z "$direction" ]; then
+        echo "Power Pages stores web-page assets in TWO places per page:"
+        echo "  base:      <slug>/<Page>.webpage.copy.html"
+        echo "  localized: <slug>/content-pages/<lang>/<Page>.<lang>.webpage.copy.html"
+        echo
+        echo "Sync direction options:"
+        echo "  1) base   → localized   (copy base file content into all locale variants)"
+        echo "  2) localized → base     (copy first locale variant into the base)"
+        read -r -p "Pick (1/2): " choice
+        case "$choice" in
+            1) direction="base-to-localized" ;;
+            2) direction="localized-to-base" ;;
+            *) die "Invalid choice" ;;
+        esac
+    fi
+
+    info "${BOLD}Sync pages: $name${RST}  (direction: $direction)"
+
+    local copied=0 skipped=0
+    local suffixes=(
+        ".webpage.copy.html"
+        ".webpage.custom_javascript.js"
+        ".webpage.custom_css.css"
+        ".webpage.summary.html"
+    )
+
+    for page_dir in "$SITE_DIR"/web-pages/*/; do
+        [ -d "$page_dir" ] || continue
+        local cp_dir="${page_dir}content-pages"
+        [ -d "$cp_dir" ] || continue
+
+        for suffix in "${suffixes[@]}"; do
+            # Find base file (non-locale-prefixed)
+            local base_file=""
+            for f in "$page_dir"*"$suffix"; do
+                [ -f "$f" ] || continue
+                # Skip files in content-pages subdirectory
+                [[ "$f" == *"/content-pages/"* ]] && continue
+                base_file="$f"
+                break
+            done
+            [ -z "$base_file" ] && continue
+
+            # Find first localized file
+            local loc_file=""
+            for f in "$cp_dir"/*"$suffix"; do
+                [ -f "$f" ] || continue
+                loc_file="$f"
+                break
+            done
+            [ -z "$loc_file" ] && continue
+
+            case "$direction" in
+                base-to-localized)
+                    # Copy base content into ALL localized variants
+                    for f in "$cp_dir"/*"$suffix"; do
+                        [ -f "$f" ] || continue
+                        if cmp -s "$base_file" "$f"; then
+                            skipped=$((skipped + 1))
+                        else
+                            cp "$base_file" "$f"
+                            copied=$((copied + 1))
+                            echo "  base → $(basename "$f")"
+                        fi
+                    done
+                    ;;
+                localized-to-base)
+                    if cmp -s "$loc_file" "$base_file"; then
+                        skipped=$((skipped + 1))
+                    else
+                        cp "$loc_file" "$base_file"
+                        copied=$((copied + 1))
+                        echo "  $(basename "$loc_file") → base"
+                    fi
+                    ;;
+            esac
+        done
+    done
+
+    echo
+    ok "Copied: $copied  ·  Already in sync: $skipped"
+    info "Review with: git diff --stat $SITE_DIR/web-pages"
+    info "Then commit and run: pp up $name"
+}
+
+# ===========================================================================
 # Subcommand: project (add / remove / edit)
 # ===========================================================================
 
@@ -901,6 +1003,7 @@ SYNC OPERATIONS  (project arg required, alias OK)
     pp doctor <project>
     pp solution-down <project> [solution]
     pp solution-up   <project> [solution]
+    pp sync-pages    <project> [base-to-localized|localized-to-base]
     pp audit <project> [--severity ERROR|WARN|INFO] [--exit-code] [--json]
 
 PROJECT NAME RESOLUTION
@@ -945,6 +1048,7 @@ main() {
         commit)        die "Use git directly or copy templates/commit.sh — pp commit not yet implemented in CLI" ;;
         solution-down|sol-down) cmd_solution_down "$@" ;;
         solution-up|sol-up)     cmd_solution_up "$@" ;;
+        sync-pages)    cmd_sync_pages "$@" ;;
         audit)         cmd_audit "$@" ;;
         project)
             local sub="${1:-}"; shift || true

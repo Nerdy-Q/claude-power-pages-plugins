@@ -18,6 +18,7 @@ Full list of checks the audit script performs, with codes, severity, and what tr
 | WRN-002 | Web Role `<name>` has no Table Permission references | A Web Role exists in `webrole.yml` but no Table Permission's `adx_entitypermission_webrole` includes its GUID. Either obsolete or grants nothing. |
 | WRN-003 | Sitemarker `<name>` referenced in Liquid but not defined | A web template / page / snippet uses `sitemarkers['<name>']` but no Sitemarker record with this name exists in `sitemarker.yml`. The Liquid expression returns `nil`, breaking URL construction. |
 | WRN-004 | Custom JS calls `/_api/` without anti-forgery token pattern | A `*.webpage.custom_javascript.js` file contains `/_api/<entity>` calls but never references `__RequestVerificationToken`, `getTokenDeferred`, or a `safeAjax` helper. Power Pages returns 403 without the token. |
+| WRN-005 | `<prefix_name>@odata.bind` is all lowercase — likely a Logical Name where Navigation Property was needed | Custom JS has a `<custom>_<lowercase>@odata.bind` payload key. Custom-entity navigation properties typically use PascalCase (schema-name casing). Lowercase form is the **Logical Name** of the lookup attribute, not the navigation property — Power Pages returns `'<name>' is not a valid navigation property`. Built-in nav props like `parentcustomerid` and `_contact`/`_account` polymorphic suffixes are excluded. |
 
 ## INFO-class
 
@@ -27,8 +28,9 @@ Full list of checks the audit script performs, with codes, severity, and what tr
 | INFO-002 | Web API on `<entity>` exposes all fields (`fields = *`) | `Webapi/<entity>/Fields = *` instead of an explicit whitelist. Fields added later are auto-exposed. |
 | INFO-003 | Page `<name>` requires auth but has no role rule | A Web Page requires registration but has no associated Web Page Access Control Rule. Any authenticated user can reach it. |
 | INFO-004 | Role-permission junction not exported | The site's `pac paportal` export format doesn't include `adx_entitypermission_webrole` lists. Role-aware checks (ERR-002, ERR-003, WRN-002) are skipped for this site. |
-| INFO-005 | Page `<slug>` has empty base file but populated localized file | The base `<Page>.webpage.copy.html` (or `.custom_javascript.js`, etc.) is under 50 bytes while the matching `content-pages/<lang>/...` is over 200 bytes. **#1 blank-page bug**: Power Pages renders the base by default; localized content renders only when base is empty AND a matching language is requested. Most users see the empty base. |
+| INFO-005 | Page `<slug>` has empty base file but populated localized file | The base `<Page>.webpage.copy.html` (or `.custom_javascript.js`, etc.) is under 50 bytes while the matching `content-pages/<lang>/...` is over 200 bytes. **Blank-page mode A**: Power Pages renders the base by default; localized content renders only when base is empty AND a matching language is requested. Most users see the empty base. |
 | INFO-007 | Unsafe DotLiquid JSON escape (`replace: '"', '\\"'`) | A web template / page / snippet uses the broken DotLiquid escape pattern that produces 3 chars (`\\"`) instead of the intended 2 (`\"`). Breaks JSON parsing in `<script>` blocks. Use `replace: '"', '"'` instead. |
+| INFO-009 | Page `<slug>` has diverged base/localized files | Both base file and a `content-pages/<lang>/...` localized file are populated (>200 bytes each), but their sizes differ by more than 10%. **Inconsistent-content mode B**: some users see one version, others see the other depending on which Power Pages serves them. Pick one as authoritative and copy to the other. |
 
 ## Why some checks are heuristic
 

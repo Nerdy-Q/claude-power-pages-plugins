@@ -208,7 +208,34 @@ When the form is genuinely a CRUD operation on a single entity with standard val
 
 ### Forgetting to sync base + localized files
 
-Recap: Power Pages loads BASE by default. After editing locally, run any sync workflow that copies the base content to `content-pages/en-US/...` (or your wrapper script's equivalent). Otherwise editor users may see different content than visitors.
+Power Pages stores **two physical copies** of every page asset: a base file (`<Page>.webpage.copy.html`) and one or more localized files (`content-pages/<lang>/<Page>.<lang>.webpage.copy.html`). Both must stay synced. The tooling does not auto-sync.
+
+**Two failure modes** to avoid:
+
+| Mode | What it looks like | How it happens |
+|---|---|---|
+| **Empty base** | Page renders blank | Studio sometimes saves edits only to the localized file — when another developer pulls, their base is empty. |
+| **Diverged pair** | Some users see different content than others | Both files were edited at different times; they've drifted. The base still wins for non-localized requests, but localized users see the older / newer version unintentionally. |
+
+**Files affected** (each has both a base and a `content-pages/<lang>/` form):
+- `<Page>.webpage.copy.html`
+- `<Page>.webpage.custom_javascript.js`
+- `<Page>.webpage.custom_css.css`
+- `<Page>.webpage.summary.html`
+
+**Pick a maintenance pattern and stick to it across the team.** Three workable patterns:
+
+1. **Base-only**: edit the base file in your IDE; never touch the localized files; treat them as auto-generated mirrors. Run a post-edit hook (or `pp sync-pages <project>`) that copies base → localized after each edit. Simplest for non-localized portals (English-only).
+2. **Localized-only**: edit the localized file in your IDE; treat the base as auto-generated. Same hook in reverse. Common when Studio is the primary edit interface (Studio's "Edit page" tends to update localized).
+3. **Bidirectional**: edit either, run a sync that uses the most recent timestamp as authoritative. More moving parts; needs a tool.
+
+Whichever you pick, **document it in the project's CLAUDE.md** so the team is consistent.
+
+**Detect divergence**: the audit's INFO-005 catches "empty base + populated localized" (mode A). INFO-009 catches "both populated but diverged" (mode B).
+
+**Fix divergence**: `pp sync-pages <project>` copies one direction in bulk (you choose base→localized or localized→base based on which has the latest content).
+
+**Don't let `git status` lie to you.** After a `pac paportal download`, look for paired `.webpage.copy.html` files where one side has a substantive change and the other doesn't. PAC will happily fetch both files in their current state — divergence on the server stays divergent on disk.
 
 ### Loading too much CSS/JS
 

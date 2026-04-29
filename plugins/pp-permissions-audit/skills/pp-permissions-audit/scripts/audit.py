@@ -693,6 +693,116 @@ def check_webapi_without_safeajax(state: AuditState) -> None:
         )
 
 
+def check_base_vs_localized_divergence_content(state: AuditState) -> None:
+    """INFO — Both base and localized files exist and are populated, but diverge significantly.
+
+    This is mode B of the base/localized hazard: not blank, just inconsistent.
+    Some users (locale-matched) see one version, others see the other.
+    """
+    site = state.site_dir
+    web_pages_dir = site / "web-pages"
+    if not web_pages_dir.is_dir():
+        return
+
+    role_suffixes = (".webpage.copy.html", ".webpage.custom_javascript.js", ".webpage.custom_css.css")
+
+    for page_dir in web_pages_dir.iterdir():
+        if not page_dir.is_dir():
+            continue
+        for suffix in role_suffixes:
+            base_files = [p for p in page_dir.iterdir() if p.is_file() and p.name.endswith(suffix)]
+            content_pages = page_dir / "content-pages"
+            if not content_pages.is_dir() or not base_files:
+                continue
+            base = base_files[0]
+            base_size = base.stat().st_size
+            if base_size < 200:
+                # Empty/near-empty base is mode A (INFO-005), not B
+                continue
+            tail = suffix.lstrip(".")
+            for cp_file in content_pages.iterdir():
+                if not (cp_file.is_file() and re.search(rf"\.{re.escape(tail)}$", cp_file.name)):
+                    continue
+                cp_size = cp_file.stat().st_size
+                if cp_size < 200:
+                    continue
+                # Both populated. Compare sizes and head signatures.
+                size_ratio = max(base_size, cp_size) / max(min(base_size, cp_size), 1)
+                if size_ratio > 1.10:  # >10% size delta
+                    state.add(
+                        "INFO",
+                        "INFO-009",
+                        f"Page `{page_dir.name}` has diverged base/localized `{tail}` files",
+                        f"Base ({base_size} bytes) and localized {cp_file.name} ({cp_size} bytes) "
+                        f"differ by {(size_ratio - 1) * 100:.0f}%. Some users will see one version, "
+                        f"others will see the other. Pick one as authoritative and copy to the other "
+                        f"(or use `pp sync-pages <project>` if available).",
+                        location=f"{base} ↔ {cp_file}",
+                    )
+
+
+def check_lowercase_odatabind_navprop(state: AuditState) -> None:
+    """WARN — Custom JS uses `<lookup>@odata.bind` with a navigation-property name
+    that is all lowercase AND contains a custom-prefix underscore.
+
+    Microsoft's built-in entities use lowercase nav props (parentcustomerid,
+    primarycontactid). Custom entities almost always have PascalCase schema
+    names — so `acme_account@odata.bind` is statistically likely a casing
+    bug (should be `acme_Account@odata.bind`).
+    """
+    bind_re = re.compile(r"['\"]([A-Za-z_][A-Za-z0-9_]*)@odata\.bind['\"]")
+
+    # Polymorphic field bases that take an entity-logical-name suffix (lowercase is correct):
+    #   objectid_<entity>      annotations / activity attachments
+    #   regardingobjectid_<entity>  activities
+    #   customerid_<entity>    quotes / orders / invoices
+    #   <field>_<entity>       customer-type lookups (handled separately by WRN-001)
+    POLYMORPHIC_BASES = ("objectid", "regardingobjectid", "customerid")
+
+    # Heuristic: treat a name as "custom" if it has a prefix_ pattern (e.g. acme_field) AND
+    # the part after the underscore is all-lowercase. Built-in nav props don't have prefix_ form.
+    for js in state.custom_js:
+        try:
+            text = js.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for match in bind_re.finditer(text):
+            nav_prop = match.group(1)
+            # Skip common built-ins (lowercase by design):
+            if nav_prop in {"parentcustomerid", "primarycontactid", "regardingobjectid",
+                            "ownerid", "createdby", "modifiedby", "owningteam", "owninguser",
+                            "transactioncurrencyid", "objectid"}:
+                continue
+            # Skip if already has _contact / _account suffix (covered by WRN-001):
+            if any(nav_prop.endswith(s) for s in ("_contact", "_account", "_systemuser")):
+                # WRN-001 already handles polymorphic shape; skip here even if lowercase
+                # so we don't double-flag a single bad name.
+                continue
+            # Skip polymorphic <base>_<entity-logical-name> patterns —
+            # the suffix is the target entity's logical name (lowercase IS correct here):
+            if any(nav_prop.startswith(base + "_") for base in POLYMORPHIC_BASES):
+                continue
+            # Custom entity prefix pattern: <prefix>_<name>
+            m = re.fullmatch(r"([a-z][a-z0-9]+)_([A-Za-z][A-Za-z0-9_]*)", nav_prop)
+            if not m:
+                continue
+            after_underscore = m.group(2)
+            # If the part after the prefix is all lowercase, it's likely a logical name not a nav prop
+            if after_underscore.islower():
+                state.add(
+                    "WARN",
+                    "WRN-005",
+                    f"`{nav_prop}@odata.bind` is all lowercase — likely a Logical Name where Navigation Property was needed",
+                    f"Custom-entity navigation properties usually use PascalCase (matching the schema "
+                    f"name), not the lowercase logical name. `{nav_prop}@odata.bind` will likely return "
+                    f"`'{nav_prop}' is not a valid navigation property`. Look up the navigation property "
+                    f"name in `Entity.xml` (search for `ReferencingEntityNavigationPropertyName`) or in "
+                    f"the Maker Portal's Relationships view. Common fix: capitalize the first letter "
+                    f"after the underscore (`{m.group(1)}_{after_underscore.capitalize()}`).",
+                    location=str(js),
+                )
+
+
 def check_missing_sitemarker_references(state: AuditState) -> None:
     """WARN — Liquid template references `sitemarkers['<name>']` that isn't defined."""
     if not state.sitemarkers:
@@ -828,9 +938,11 @@ def main(argv: list[str] | None = None) -> int:
     check_pages_auth_no_role(state)
     check_fls_with_wildcard(state)
     check_base_vs_localized_divergence(state)
+    check_base_vs_localized_divergence_content(state)
     check_unsafe_dotliquid_escape(state)
     check_webapi_without_safeajax(state)
     check_missing_sitemarker_references(state)
+    check_lowercase_odatabind_navprop(state)
 
     # Apply severity filter
     if args.severity:
