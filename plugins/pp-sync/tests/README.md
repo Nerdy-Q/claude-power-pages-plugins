@@ -1,0 +1,54 @@
+# pp-sync test suites
+
+Bash regression tests for `pp` CLI behavior. All three suites run in CI on every PR via `.github/workflows/plugin-validate.yml`.
+
+## Suites
+
+| File | Tests | What it verifies |
+|---|---|---|
+| `test_load_project.sh` | 12 | Strict key=value parser correctness. Includes 7 attack-vector fixtures (`$(...)`, backticks, control chars, allowlist bypass attempts) verifying that command-injection payloads are stored as literal strings, never executed. |
+| `test_register_atomic.sh` | 6 | `pp project add` atomicity. Asserts that rejected runs (invalid project name / PAC profile / solution / alias) leave zero files behind in `$PP_CONFIG_DIR/projects/`. |
+| `test_journal_url_validation.sh` | 16 | `validate_issue_url_for_current_repo()` URL-shape regex + same-repo enforcement. Mocks `gh repo view` to test cross-repo hijack rejection without a real git checkout. Covers subdomain spoof, port injection, http downgrade, prefix confusion, path traversal, non-issue URLs, and 9 other attack vectors. |
+
+Run any suite locally:
+
+```bash
+bash plugins/pp-sync/tests/test_load_project.sh
+```
+
+All suites set `PP_CONFIG_DIR` to a `mktemp -d` so they don't touch `~/.config/nq-pp-sync/`.
+
+## Fixture conventions
+
+`fixtures/*.conf` files exercise specific parser behaviors. Each fixture is named after the behavior it tests (e.g. `injection-via-repo.conf`, `path-poisoning.conf`).
+
+When adding a fixture for command-injection or env-poisoning attacks, **also add a sentinel that proves the payload didn't execute**. Current convention: payloads `touch /tmp/pp-pwn-test-DO-NOT-EXECUTE` (or similar). Test runs assert the trap file does NOT exist after the suite.
+
+## Source-safe `bin/pp`
+
+The suites source `bin/pp` to access `load_project()` and `validate_issue_url_for_current_repo()` directly. `bin/pp` is structured to detect this:
+
+```bash
+return 2>/dev/null || main "$@"
+```
+
+When the file is sourced, `return` succeeds (we're inside a sourced script), so `main` is skipped. When executed, `return` errors and `main` runs. Tests therefore never accidentally dispatch a real command.
+
+`PP_PROJECTS_DIR`, `PP_ALIASES_FILE`, and `PP_ACTIVE_FILE` are all overridable via `${VAR:-default}` so tests can isolate to a tmpdir without touching the user's real config.
+
+## Adding a new test
+
+1. **Decide which suite owns the behavior**:
+   - Parser invariant → `test_load_project.sh`
+   - Registration / file-write atomicity → `test_register_atomic.sh`
+   - URL or external-system contract → `test_journal_url_validation.sh`
+   - Brand-new behavior → consider a new suite + a new CI step
+2. **Add a fixture** (parser-style suites) or **inline stdin** (registration-style).
+3. **Make the assertion specific**. Don't just check "exit code != 0" for an attack — assert what *actually* happened (e.g. trap file does NOT exist, conf file does NOT exist, allowlisted variable was NOT mutated).
+4. Run locally, confirm it passes, push.
+
+## Why bash and not pytest
+
+The system under test is `bin/pp`, a 1500-line bash script. Sourcing it from bash gives direct access to its functions and variables. Re-implementing the same harness in Python would need a subprocess shim that hides the very behavior we want to verify (function-table state, IFS handling, dynamic scoping) — exactly the things that surface real bugs in shell code.
+
+The Python suite (`audit.py`) tests Python code; the bash suites test bash code.

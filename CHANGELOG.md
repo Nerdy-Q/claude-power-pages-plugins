@@ -2,6 +2,24 @@
 
 All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
 
+## [2.7.1] — 2026-04-29
+
+Documentation patch — the supporting docs for v2.7.0's automation and behavior changes. No code changes.
+
+### Added
+
+- **`plugins/pp-sync/tests/README.md`** — explains the test fixture conventions, the source-safe `bin/pp` pattern, and how to add a new test for a new subcommand. Previously the `tests/` directory had no orientation.
+- **`plugins/pp-sync/README.md` "Project config format" section** — documents the strict KEY="value" parser introduced in v2.0.0, the allowlist of recognized keys, the input-validation regex contract for names/aliases/profiles, and the migration story for hand-edited confs that used `$HOME` / `$(...)`. Links to the CHANGELOG v2.7.0 entry for the full rationale.
+- **`plugins/pp-sync/README.md` "Tests" section** — surfaces the 34-test bash suite for users who want to extend the CLI.
+- **`CONTRIBUTING.md` "Test suites" section** — documents all four test suites (audit.py + 3 bash suites) and how to run each locally.
+- **`CONTRIBUTING.md` "Static analysis" section** — documents the new ShellCheck CI step at `--severity=warning` and the warnings to watch for.
+- **`CONTRIBUTING.md` "Cutting a release" subsection** — formal 7-step release process now that `marketplace.version` ↔ CHANGELOG enforcement is load-bearing.
+
+### Changed
+
+- **`CONTRIBUTING.md` "Version management" section** — expanded from a 2-bullet list to a 3-row table that names every field in `versions.json`. Documents the one-way nature of the CHANGELOG check (`sync_versions.py` reads CHANGELOG, never writes it).
+- **`CONTRIBUTING.md` "Near-term hardening" section removed** — the section claimed `pp-sync/bin/pp` had no tests and was the next surface to add. v2.7.0 added 34 tests covering exactly the scenarios the section listed (project-config generation, registration paths). Section replaced by the new "Test suites" section that documents what shipped.
+
 ## [2.7.0] — 2026-04-29
 
 Comprehensive audit closure pass. Internal audit on 2026-04-29 surfaced 18 findings across security, documentation accuracy, CI coverage, and code quality. All 18 closed in this release. Iterative testing surfaced 5 additional bugs in the same classes (also closed).
@@ -270,6 +288,7 @@ Static analysis of Power Pages portal permissions and Web API configuration. Std
 - Per-plugin manifests + READMEs
 - `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
 
+[2.7.1]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.1
 [2.7.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.0
 [2.6.1]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.6.1
 [2.6.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.6.0
