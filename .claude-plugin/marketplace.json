@@ -1,0 +1,57 @@
+{
+    "name": "nq-claude-plugins",
+    "owner": {
+        "name": "NerdyQ",
+        "url": "https://github.com/Nerdy-Q"
+    },
+    "metadata": {
+        "description": "Open-source Claude Code plugins from NerdyQ for Microsoft Power Pages classic portals — Liquid templating reference, safe pac paportal sync workflows, and static-analysis security audit."
+    },
+    "plugins": [
+        {
+            "name": "pp-liquid",
+            "source": "./plugins/pp-liquid",
+            "description": "Microsoft Power Pages classic Liquid templating skill — Web Templates, FetchXML in Liquid, Web API in custom JS, hybrid pages, DotLiquid gotchas, and pac paportal sync.",
+            "category": "development",
+            "tags": [
+                "power-pages",
+                "power-platform",
+                "liquid",
+                "dotliquid",
+                "dataverse",
+                "fetchxml",
+                "webapi",
+                "microsoft"
+            ]
+        },
+        {
+            "name": "pp-sync",
+            "source": "./plugins/pp-sync",
+            "description": "Run Power Pages classic portal sync workflows safely — pac paportal download/upload, pac solution export/unpack, project-aware wrapper-script delegation, and bulk-upload safety guards.",
+            "category": "development",
+            "tags": [
+                "power-pages",
+                "pac",
+                "paportal",
+                "sync",
+                "deployment",
+                "dataverse"
+            ]
+        },
+        {
+            "name": "pp-permissions-audit",
+            "source": "./plugins/pp-permissions-audit",
+            "description": "Audit a Power Pages classic portal's Web Roles, Table Permissions, Site Settings, and Web API configuration for misalignments — orphaned permissions, missing site settings, exposed fields, broken polymorphic lookups, and security gaps.",
+            "category": "security",
+            "tags": [
+                "power-pages",
+                "permissions",
+                "audit",
+                "security",
+                "table-permissions",
+                "web-roles",
+                "webapi"
+            ]
+        }
+    ]
+}

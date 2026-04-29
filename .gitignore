@@ -1,0 +1,19 @@
+.DS_Store
+node_modules/
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Python bytecode (audit script in pp-permissions-audit)
+__pycache__/
+*.pyc
+*.pyo
+
+# Sed in-place backup files
+*.bak
+
+# Local-only test/scratch
+.scratch/
+*.local

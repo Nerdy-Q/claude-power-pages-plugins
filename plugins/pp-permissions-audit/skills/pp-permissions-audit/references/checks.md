@@ -1,0 +1,47 @@
+# Audit Checks Reference
+
+Full list of checks the audit script performs, with codes, severity, and what triggers each.
+
+## ERROR-class
+
+| Code | Title | Triggered when |
+|---|---|---|
+| ERR-001 | Web API enabled for `<entity>` but no Table Permission grants Read | A `Webapi/<entity>/Enabled = true` site setting exists but no Table Permission with `adx_read: true` references the same entity. Web API calls would return 401/403. |
+| ERR-002 | Orphaned Table Permission `<name>` | A Table Permission has empty `adx_entitypermission_webrole`. Skipped if the export format doesn't include the role junction (see INFO-004). |
+| ERR-003 | Anonymous Users role granted `<ops>` on `<entity>` | A role marked `adx_anonymoususersrole: true` is referenced in a permission with Write, Create, or Delete on a non-trivial table. |
+
+## WARN-class
+
+| Code | Title | Triggered when |
+|---|---|---|
+| WRN-001 | Possible polymorphic lookup without disambiguator | Custom JS contains a `<lookup>@odata.bind` pattern where the lookup name matches a polymorphic-field hint (`applicant`, `customer`, `owner`, `regarding`, `objectid`) and lacks a `_contact` / `_account` / `_systemuser` suffix. Likely runtime 400. |
+| WRN-002 | Web Role `<name>` has no Table Permission references | A Web Role exists in `webrole.yml` but no Table Permission's `adx_entitypermission_webrole` includes its GUID. Either obsolete or grants nothing. |
+| WRN-003 | Sitemarker `<name>` referenced in Liquid but not defined | A web template / page / snippet uses `sitemarkers['<name>']` but no Sitemarker record with this name exists in `sitemarker.yml`. The Liquid expression returns `nil`, breaking URL construction. |
+| WRN-004 | Custom JS calls `/_api/` without anti-forgery token pattern | A `*.webpage.custom_javascript.js` file contains `/_api/<entity>` calls but never references `__RequestVerificationToken`, `getTokenDeferred`, or a `safeAjax` helper. Power Pages returns 403 without the token. |
+
+## INFO-class
+
+| Code | Title | Triggered when |
+|---|---|---|
+| INFO-001 | Table Permission allows Read on `<entity>` but Web API is not enabled | Permission exists but no `Webapi/<entity>/Enabled = true` site setting. Fine for FetchXML-only access; `/_api/<entity>` calls would 404. |
+| INFO-002 | Web API on `<entity>` exposes all fields (`fields = *`) | `Webapi/<entity>/Fields = *` instead of an explicit whitelist. Fields added later are auto-exposed. |
+| INFO-003 | Page `<name>` requires auth but has no role rule | A Web Page requires registration but has no associated Web Page Access Control Rule. Any authenticated user can reach it. |
+| INFO-004 | Role-permission junction not exported | The site's `pac paportal` export format doesn't include `adx_entitypermission_webrole` lists. Role-aware checks (ERR-002, ERR-003, WRN-002) are skipped for this site. |
+| INFO-005 | Page `<slug>` has empty base file but populated localized file | The base `<Page>.webpage.copy.html` (or `.custom_javascript.js`, etc.) is under 50 bytes while the matching `content-pages/<lang>/...` is over 200 bytes. **#1 blank-page bug**: Power Pages renders the base by default; localized content renders only when base is empty AND a matching language is requested. Most users see the empty base. |
+| INFO-007 | Unsafe DotLiquid JSON escape (`replace: '"', '\\"'`) | A web template / page / snippet uses the broken DotLiquid escape pattern that produces 3 chars (`\\"`) instead of the intended 2 (`\"`). Breaks JSON parsing in `<script>` blocks. Use `replace: '"', '"'` instead. |
+
+## Why some checks are heuristic
+
+- **WRN-001** uses name-substring matching to flag *possible* polymorphic lookups. Power Pages doesn't expose the polymorphic-vs-singular field type in the per-page YAML; the script can't be 100% sure. Always cross-check against the entity schema before applying a fix. False positives are expected; false negatives are unlikely.
+- **WRN-002** skips implicit roles (`Anonymous Users`, `Authenticated Users`) which always have an "implicit" association via the role flag — they don't need to be referenced by GUID.
+- **ERR-001** falls back to entity-only matching (without role validation) when the export format omits the role junction (INFO-004 case). It still catches the most common misalignment (Web API enabled, zero permissions exist), but won't catch role-specific gaps.
+
+## Adding a new check
+
+1. Add a `check_*` function in `audit.py`. Take the `AuditState` and call `state.add(severity, code, title, detail, location)`.
+2. Call it from `main()`.
+3. Pick a code following the pattern (ERR-NNN / WRN-NNN / INFO-NNN). Reserve a fresh number.
+4. Document the check in this file.
+5. Update `interpreting.md` and `remediation.md` if the new check needs interpretation/fix guidance.
+
+PRs and forks welcome.

@@ -1,0 +1,105 @@
+---
+name: pp-permissions-audit
+description: Audit a Power Pages classic portal's Web Roles, Table Permissions, Site Settings, and Web API configuration for misalignments — orphaned permissions, missing Webapi/<entity>/enabled site settings, exposed `fields = *` whitelists, broken polymorphic lookups in custom JS, anonymous-role exposure, and security gaps. Use when the user reports unexpected 401/403/404 from /_api/, missing data, role-specific access bugs, or wants a portal security review. NOT for code sites.
+---
+
+# Power Pages Permissions Audit
+
+Static analysis of a Power Pages classic site's permissions configuration. The skill reads YAML metadata + custom JavaScript, cross-references findings, and produces a prioritized report of misalignments and security risks.
+
+## When to apply
+
+User says any of:
+
+- "audit my Power Pages permissions"
+- "review the portal security"
+- "I'm getting 401 / 403 / 404 from /_api/<something> — why?"
+- "this page works for me but not for <other-user>"
+- "unauthenticated users can see X"
+- "make sure I'm not exposing any sensitive fields"
+
+## How this skill works
+
+1. **Detect the site folder** — `<site>---<site>/` containing `web-pages/`, `web-templates/`, `table-permissions/`, `web-roles/`, `site-settings/`. If multiple sites exist (Modernization Suite), ask the user which one.
+2. **Run the audit script** — `scripts/audit.py <site-folder>`. The script reads YAML and JS files and emits a structured report.
+3. **Interpret the findings** — the script identifies issues but the *fix* depends on the user's intent. Walk through findings with the user.
+4. **Optionally write fixes** — only after the user picks which findings to address. Never auto-apply fixes.
+
+## Running the audit
+
+```bash
+python3 <skill-path>/scripts/audit.py <site-folder>
+```
+
+The script is **stdlib only** (no `pip install` needed) — Power Pages YAML is flat enough to parse with `re`. If the user wants more rigorous YAML parsing, they can `pip install pyyaml` and the script will use it automatically when available.
+
+Output is markdown:
+
+```markdown
+# Power Pages Permissions Audit Report
+Site: <name>  Path: <path>  Generated: <timestamp>
+
+## Summary
+- ERROR    3
+- WARN     8
+- INFO    12
+
+## Findings
+
+### ERROR-001: WebAPI enabled but no Table Permission
+Entity: contoso_contractor
+...
+```
+
+## What this skill audits
+
+See [checks.md](references/checks.md) for the full list. Highlights:
+
+| Severity | Check |
+|---|---|
+| ERROR | Web API enabled (`Webapi/<entity>/enabled = true`) but no Table Permission grants Read for any Web Role |
+| ERROR | Table Permission with empty `adx_webroles` array (orphaned) |
+| ERROR | Anonymous Users role granted Write/Delete on a sensitive table |
+| ERROR | `Webapi/<entity>/fields = *` on a table that has FLS-protected columns |
+| WARN | Table Permission grants Read but Web API site setting is missing — Web API will 404 |
+| WARN | Web Page requires authentication but no Web Role rule (any auth user can see) |
+| WARN | Custom JS has `<lookup>@odata.bind` without `_contact` / `_account` suffix on a polymorphic field — runtime 400 |
+| WARN | Web Role exists but has zero contacts assigned (orphaned role) |
+| INFO | Web API enabled but `fields` whitelist is the safer pattern than `*` |
+| INFO | Table Permission with Global scope but the entity has user-owned records |
+
+## Interpreting findings
+
+Three categories of fix:
+
+1. **Add missing config**: Web API site setting is missing — add it to `site-settings/`
+2. **Tighten config**: `fields = *` exposes too much — narrow to a whitelist
+3. **Remove dead config**: orphaned permission with no roles — delete the YAML file
+
+The script flags issues. **You** make the call about which to fix and how — based on whether the data is genuinely sensitive, whether the role is intended to have access, etc. Always discuss findings with the user before applying fixes.
+
+See [interpreting.md](references/interpreting.md) and [remediation.md](references/remediation.md) for guidance on each finding type.
+
+## What this skill does NOT do
+
+- **Auto-apply fixes** — every fix is proposed to the user, not applied automatically. Permissions changes affect security; the user must approve each one.
+- **Live-query Dataverse** — this is static analysis of the local site source. It can't verify whether a Web Role is actually assigned to specific Contacts (that lives in Dataverse, not the site source). For live verification, use the `dataverse` plugin (`dv-query`) to inspect Dataverse directly.
+- **Audit Dataverse-side security** — System User roles, security roles on entities, business unit boundaries are out of scope. This skill audits the **portal layer** only.
+- **Replace manual security review** — the audit catches misalignments it can detect statically. It cannot judge whether the portal's intended security model is correct in the first place; that's a human decision.
+
+## Reference files
+
+- [checks.md](references/checks.md) — full list of audit checks with descriptions
+- [interpreting.md](references/interpreting.md) — how to interpret each finding type
+- [remediation.md](references/remediation.md) — how to fix each finding type
+- [api-config.md](references/api-config.md) — Power Pages Web API site setting requirements (deep reference)
+
+## Audit script
+
+The audit logic lives in `scripts/audit.py`. Read it to understand the exact checks. To extend the audit:
+
+1. Add a `check_*` function in `audit.py`
+2. Call it from `main()`
+3. Document the new check in `references/checks.md`
+
+PRs welcome.

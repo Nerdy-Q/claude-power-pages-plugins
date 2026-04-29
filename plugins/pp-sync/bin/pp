@@ -1,0 +1,972 @@
+#!/usr/bin/env bash
+# pp — Power Pages CLI dispatcher (NerdyQ pp-sync plugin)
+#
+# Single-command interface for Power Pages portal sync, solution import/export,
+# and permissions audit, backed by a per-project config registry.
+#
+# See: https://github.com/Nerdy-Q/claude-plugins
+#
+# Quick start:
+#   pp setup              # one-time bootstrap (auto-detects projects + PAC profiles)
+#   pp list               # list registered projects
+#   pp down <project>     # sync down
+#   pp up <project>       # sync up (with bulk-upload safety)
+#   pp doctor <project>   # health check
+#   pp audit <project>    # run permissions audit
+#   pp solution-down <project> [solution]    # export solution
+#
+# Project name resolution:
+#   1. Exact match in ~/.config/nq-pp-sync/projects/<name>.conf
+#   2. Alias lookup in ~/.config/nq-pp-sync/aliases
+#   3. Unique prefix match (e.g. "acm" -> "acme-dev" if no other "acm*")
+#   4. Active project (~/.config/nq-pp-sync/active) if no arg passed
+
+set -uo pipefail
+
+# ===========================================================================
+# Paths
+# ===========================================================================
+
+PP_CONFIG_DIR="${PP_CONFIG_DIR:-$HOME/.config/nq-pp-sync}"
+PP_PROJECTS_DIR="$PP_CONFIG_DIR/projects"
+PP_ALIASES_FILE="$PP_CONFIG_DIR/aliases"
+PP_ACTIVE_FILE="$PP_CONFIG_DIR/active"
+
+# ===========================================================================
+# Output helpers
+# ===========================================================================
+
+if [ -t 1 ]; then
+    BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GRN=$'\033[32m'
+    YLW=$'\033[33m'; BLU=$'\033[34m'; RST=$'\033[0m'
+else
+    BOLD=""; DIM=""; RED=""; GRN=""; YLW=""; BLU=""; RST=""
+fi
+
+info()  { printf '%s→%s %s\n' "$BLU" "$RST" "$*"; }
+ok()    { printf '%s✓%s %s\n' "$GRN" "$RST" "$*"; }
+warn()  { printf '%s⚠%s %s\n' "$YLW" "$RST" "$*" >&2; }
+err()   { printf '%s✗%s %s\n' "$RED" "$RST" "$*" >&2; }
+die()   { err "$@"; exit 1; }
+
+# ===========================================================================
+# Project registry helpers
+# ===========================================================================
+
+ensure_config_dirs() {
+    mkdir -p "$PP_PROJECTS_DIR"
+    [ -f "$PP_ALIASES_FILE" ] || touch "$PP_ALIASES_FILE"
+}
+
+list_projects() {
+    [ -d "$PP_PROJECTS_DIR" ] || return 0
+    find "$PP_PROJECTS_DIR" -maxdepth 1 -name "*.conf" -type f 2>/dev/null \
+        | sed 's|.*/||; s|\.conf$||' | sort
+}
+
+# Resolve a user-supplied name to a real project name.
+# Honors:  exact match > alias > unique prefix > active
+resolve_project() {
+    local input="${1:-}"
+    if [ -z "$input" ]; then
+        if [ -f "$PP_ACTIVE_FILE" ]; then
+            cat "$PP_ACTIVE_FILE"
+            return 0
+        fi
+        return 1
+    fi
+
+    # Exact match
+    if [ -f "$PP_PROJECTS_DIR/$input.conf" ]; then
+        echo "$input"
+        return 0
+    fi
+
+    # Alias lookup — file format: "alias=target" one per line
+    if [ -f "$PP_ALIASES_FILE" ]; then
+        local target
+        target=$(grep -E "^${input}=" "$PP_ALIASES_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+        if [ -n "$target" ] && [ -f "$PP_PROJECTS_DIR/$target.conf" ]; then
+            echo "$target"
+            return 0
+        fi
+    fi
+
+    # Unique prefix
+    local matches
+    matches=$(list_projects | grep "^${input}" || true)
+    local count
+    count=$(printf '%s\n' "$matches" | grep -c . || true)
+    if [ "$count" = "1" ]; then
+        echo "$matches"
+        return 0
+    elif [ "$count" -gt 1 ]; then
+        err "Ambiguous project name '$input'. Matches:"
+        printf '  %s\n' $matches >&2
+        return 2
+    fi
+
+    return 1
+}
+
+# Source a project's config file into the current shell. Sets:
+#   NAME REPO SITE_DIR PROFILE WEBSITE_ID ENV_URL MODEL_VERSION SOLUTIONS BRANCH SCHEMA_DIR TAGS
+load_project() {
+    local name="$1"
+    local conf="$PP_PROJECTS_DIR/$name.conf"
+    [ -f "$conf" ] || die "No config file: $conf"
+
+    # Reset variables before sourcing
+    NAME=""; REPO=""; SITE_DIR=""; PROFILE=""; WEBSITE_ID=""
+    ENV_URL=""; MODEL_VERSION="2"; BRANCH=""; SCHEMA_DIR="dataverse-schema"
+    TAGS=""
+    SOLUTIONS=()
+
+    # shellcheck disable=SC1090
+    . "$conf"
+
+    # Expand ~ in REPO
+    REPO="${REPO/#~/$HOME}"
+}
+
+read_aliases_for() {
+    local target="$1"
+    [ -f "$PP_ALIASES_FILE" ] || return 0
+    grep -E "=${target}\$" "$PP_ALIASES_FILE" 2>/dev/null | cut -d= -f1 || true
+}
+
+# ===========================================================================
+# Pre-flight helpers (shared by down/up/etc.)
+# ===========================================================================
+
+cd_repo_root() {
+    local repo="$1"
+    [ -d "$repo" ] || die "Project repo not found: $repo"
+    cd "$repo" || die "Cannot cd to $repo"
+    # If this is a git repo, snap to its top
+    local top
+    top=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    [ -n "$top" ] && cd "$top"
+}
+
+confirm_pac_profile() {
+    local profile="$1"
+    if ! pac auth list 2>/dev/null | grep -qE "^\\[[0-9]+\\][[:space:]]*\\*?[[:space:]]+UNIVERSAL[[:space:]]+${profile}\\b"; then
+        die "PAC profile '$profile' is not registered. Run: pac auth create --name $profile --environment <env-url>"
+    fi
+    pac auth select --name "$profile" >/dev/null 2>&1 \
+        || die "Failed to select PAC profile '$profile'"
+    local actual_url
+    actual_url=$(pac org who 2>&1 | awk -F': ' '/Environment Url/{print $2; exit}')
+    [ -n "$actual_url" ] || die "pac org who returned no env URL — profile may need re-auth"
+    info "Active env: $actual_url"
+    echo "$actual_url"
+}
+
+confirm_action() {
+    local prompt="$1"
+    local ans
+    read -r -p "$prompt [y/N] " ans
+    [ "${ans,,}" = "y" ] || { info "Aborted."; exit 0; }
+}
+
+# ===========================================================================
+# Subcommand: setup
+# ===========================================================================
+
+cmd_setup() {
+    ensure_config_dirs
+    info "${BOLD}pp-sync setup${RST}"
+    echo
+    echo "Config dir: $PP_CONFIG_DIR"
+    echo
+
+    # Existing projects
+    local existing
+    existing=$(list_projects)
+    if [ -n "$existing" ]; then
+        warn "Existing projects: $(echo "$existing" | tr '\n' ' ')"
+        confirm_action "Continue and add more?"
+    fi
+
+    # Detect PAC profiles
+    info "Detecting PAC auth profiles…"
+    if ! command -v pac >/dev/null 2>&1; then
+        die "pac CLI not found. Install Power Platform CLI first."
+    fi
+    local pac_output
+    pac_output=$(pac auth list 2>/dev/null) || die "pac auth list failed"
+    echo "$pac_output" | grep -E '^\[[0-9]+\]' | head -10
+    echo
+
+    # Detect candidate site folders
+    info "Scanning $HOME for Power Pages site folders…"
+    local candidates
+    candidates=$(find "$HOME/Projects" -maxdepth 6 -type d -name "*---*" 2>/dev/null | while read -r d; do
+        if [ -f "$d/website.yml" ] && [ -d "$d/web-pages" ]; then
+            echo "$d"
+        fi
+    done | head -20)
+
+    if [ -z "$candidates" ]; then
+        warn "No site folders auto-detected under $HOME/Projects"
+        info "You can register projects manually: pp project add <name>"
+        return 0
+    fi
+
+    echo "Found:"
+    printf '  %s\n' $candidates
+    echo
+    confirm_action "Walk through registering each candidate?"
+
+    while IFS= read -r candidate; do
+        [ -z "$candidate" ] && continue
+        echo
+        echo "${BOLD}Candidate:${RST} $candidate"
+        local default_name suggested_alias
+        default_name=$(basename "$(dirname "$candidate")" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+        # Special-case: if the parent is "pages" (multi-division portfolios), use the grandparent's parent
+        if [ "$default_name" = "pages" ]; then
+            default_name=$(basename "$(dirname "$(dirname "$candidate")")" | tr '[:upper:]' '[:lower:]')
+        fi
+
+        local name
+        read -r -p "Project name [$default_name]: " name
+        name="${name:-$default_name}"
+        if [ -f "$PP_PROJECTS_DIR/$name.conf" ]; then
+            warn "$name already registered — skipping"
+            continue
+        fi
+
+        # Suggest an alias (first 4-5 chars of the slug)
+        suggested_alias=$(echo "$name" | cut -c1-5)
+        local alias_input
+        read -r -p "Shorthand alias [$suggested_alias, or 'none']: " alias_input
+        alias_input="${alias_input:-$suggested_alias}"
+
+        # Auto-fill what we can
+        local repo site_rel pac_profile env_url
+        repo=$(git -C "$candidate" rev-parse --show-toplevel 2>/dev/null || echo "$(dirname "$candidate")")
+        site_rel=$(realpath --relative-to="$repo" "$candidate" 2>/dev/null || echo "$candidate")
+        # Mac realpath fallback
+        if [ -z "$site_rel" ] || [ "$site_rel" = "$candidate" ]; then
+            site_rel="${candidate#$repo/}"
+        fi
+
+        echo
+        echo "Auto-detected:"
+        echo "  Repo:       $repo"
+        echo "  Site dir:   $site_rel"
+        echo
+
+        # Profile selection
+        echo "PAC profiles available:"
+        echo "$pac_output" | grep -E '^\[[0-9]+\]' | awk '{print "  " $0}' | head
+        echo
+        read -r -p "PAC profile name (exact, from list): " pac_profile
+        [ -z "$pac_profile" ] && { warn "Skipping (no profile given)"; continue; }
+
+        # Get env URL for that profile
+        if pac auth select --name "$pac_profile" >/dev/null 2>&1; then
+            env_url=$(pac org who 2>&1 | awk -F': ' '/Environment Url/{print $2; exit}')
+        fi
+
+        # Optional website id
+        local website_id
+        read -r -p "Website ID (from 'pac paportal list', blank to skip for now): " website_id
+
+        # Optional solution names
+        local solutions
+        read -r -p "Solution unique names (comma-separated, blank to skip): " solutions
+
+        # Optional branch
+        local branch
+        read -r -p "Default branch (blank for any): " branch
+
+        # Write the conf
+        cat > "$PP_PROJECTS_DIR/$name.conf" <<EOF
+# $name — auto-generated by 'pp setup'
+NAME="$name"
+REPO="$repo"
+SITE_DIR="$site_rel"
+PROFILE="$pac_profile"
+WEBSITE_ID="$website_id"
+ENV_URL="$env_url"
+MODEL_VERSION="2"
+SCHEMA_DIR="dataverse-schema"
+BRANCH="$branch"
+TAGS=""
+EOF
+        if [ -n "$solutions" ]; then
+            printf 'SOLUTIONS=(' >> "$PP_PROJECTS_DIR/$name.conf"
+            local IFS=','
+            for s in $solutions; do
+                printf '"%s" ' "$(echo "$s" | xargs)" >> "$PP_PROJECTS_DIR/$name.conf"
+            done
+            printf ')\n' >> "$PP_PROJECTS_DIR/$name.conf"
+        fi
+
+        ok "Registered $name"
+
+        # Alias
+        if [ "$alias_input" != "none" ] && [ "$alias_input" != "$name" ]; then
+            if grep -qE "^${alias_input}=" "$PP_ALIASES_FILE" 2>/dev/null; then
+                warn "Alias '$alias_input' already in use; skipping"
+            else
+                echo "${alias_input}=${name}" >> "$PP_ALIASES_FILE"
+                ok "Alias: pp <op> $alias_input"
+            fi
+        fi
+
+    done <<< "$candidates"
+
+    echo
+    ok "Setup complete."
+    info "Try: pp list"
+    info "Or:  pp doctor <project-or-alias>"
+}
+
+# ===========================================================================
+# Subcommand: list
+# ===========================================================================
+
+cmd_list() {
+    ensure_config_dirs
+    local projects
+    projects=$(list_projects)
+    if [ -z "$projects" ]; then
+        warn "No projects registered. Run: pp setup"
+        return 0
+    fi
+
+    printf '%-25s %-30s %s\n' "PROJECT" "ALIASES" "ENVIRONMENT"
+    printf '%-25s %-30s %s\n' "-------" "-------" "-----------"
+    while IFS= read -r p; do
+        [ -z "$p" ] && continue
+        load_project "$p"
+        local aliases
+        aliases=$(read_aliases_for "$p" | tr '\n' ',' | sed 's/,$//')
+        printf '%-25s %-30s %s\n' "$p" "${aliases:--}" "${ENV_URL:--}"
+    done <<< "$projects"
+
+    if [ -f "$PP_ACTIVE_FILE" ]; then
+        echo
+        info "Active: $(cat "$PP_ACTIVE_FILE")"
+    fi
+}
+
+# ===========================================================================
+# Subcommand: show
+# ===========================================================================
+
+cmd_show() {
+    local input="${1:-}"
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    load_project "$name"
+    local aliases
+    aliases=$(read_aliases_for "$name" | tr '\n' ',' | sed 's/,$//')
+
+    cat <<EOF
+${BOLD}$NAME${RST}  ($name)
+  Aliases:        ${aliases:-(none)}
+  Repo:           $REPO
+  Site dir:       $SITE_DIR
+  PAC profile:    $PROFILE
+  Website ID:     ${WEBSITE_ID:-(not set)}
+  Env URL:        ${ENV_URL:-(not set)}
+  Model version:  $MODEL_VERSION
+  Schema dir:     $SCHEMA_DIR
+  Default branch: ${BRANCH:-(any)}
+  Solutions:      ${SOLUTIONS[*]:-(none)}
+  Tags:           ${TAGS:-(none)}
+  Config file:    $PP_PROJECTS_DIR/$name.conf
+EOF
+}
+
+# ===========================================================================
+# Subcommand: switch / use
+# ===========================================================================
+
+cmd_switch() {
+    ensure_config_dirs
+    local input="${1:-}"
+    [ -z "$input" ] && die "Usage: pp switch <project>"
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    echo "$name" > "$PP_ACTIVE_FILE"
+    load_project "$name"
+    pac auth select --name "$PROFILE" >/dev/null 2>&1 \
+        && ok "PAC profile switched to $PROFILE" \
+        || warn "PAC profile select failed (run 'pac auth list' to check)"
+    ok "Active project: $name"
+}
+
+# ===========================================================================
+# Subcommand: status
+# ===========================================================================
+
+cmd_status() {
+    if [ ! -f "$PP_ACTIVE_FILE" ]; then
+        info "No active project. Use: pp switch <project>"
+        return 0
+    fi
+    local name
+    name=$(cat "$PP_ACTIVE_FILE")
+    load_project "$name"
+    info "Active project: ${BOLD}$name${RST}"
+    echo "  Repo:       $REPO"
+    echo "  Site dir:   $SITE_DIR"
+    echo "  PAC profile: $PROFILE"
+    if pac auth select --name "$PROFILE" >/dev/null 2>&1; then
+        local actual
+        actual=$(pac org who 2>&1 | awk -F': ' '/Environment Url/{print $2; exit}')
+        echo "  Live env:   ${actual:-(unreachable)}"
+    fi
+}
+
+# ===========================================================================
+# Subcommand: down (sync portal down)
+# ===========================================================================
+
+cmd_down() {
+    local input="${1:-}"
+    local clean=1
+    shift || true
+    for arg in "$@"; do
+        case "$arg" in
+            --no-clean) clean=0 ;;
+            *) die "Unknown arg: $arg" ;;
+        esac
+    done
+
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    load_project "$name"
+
+    info "${BOLD}Sync down: $name${RST}"
+    cd_repo_root "$REPO"
+    confirm_pac_profile "$PROFILE" >/dev/null
+
+    [ -n "$WEBSITE_ID" ] || die "WEBSITE_ID not set in $name.conf — run 'pac paportal list' to find it"
+
+    if [ -n "$BRANCH" ]; then
+        local current
+        current=$(git branch --show-current 2>/dev/null || true)
+        [ -n "$current" ] && [ "$current" != "$BRANCH" ] \
+            && warn "Current branch '$current' != configured '$BRANCH'"
+    fi
+
+    if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+        warn "Uncommitted changes in working tree — download may overwrite"
+        confirm_action "Continue?"
+    fi
+
+    confirm_action "Download into $SITE_DIR ?"
+
+    info "Downloading…"
+    pac paportal download --path . --webSiteId "$WEBSITE_ID" --modelVersion "$MODEL_VERSION" || die "Download failed"
+
+    if [ "$clean" = "1" ]; then
+        info "Cleaning known noise…"
+        git checkout HEAD -- .portalconfig/ 2>/dev/null || true
+        if [ -d "$SITE_DIR" ]; then
+            if sed --version >/dev/null 2>&1; then
+                find "$SITE_DIR" -name "*.webpage.copy.html" -exec sed -i -e 's/[[:space:]]*$//' {} +
+            else
+                find "$SITE_DIR" -name "*.webpage.copy.html" -exec sed -i '' -e 's/[[:space:]]*$//' {} +
+            fi
+        fi
+    fi
+
+    local total
+    total=$(git status -s 2>/dev/null | wc -l | tr -d ' ')
+    echo
+    info "Files changed: $total"
+    git status -s | head -30
+    ok "Done. Review diffs and commit when ready."
+}
+
+# ===========================================================================
+# Subcommand: up (sync portal up)
+# ===========================================================================
+
+cmd_up() {
+    local input="${1:-}"
+    local validate_only=0 force_bulk=0 bulk_threshold=50
+    shift || true
+    for arg in "$@"; do
+        case "$arg" in
+            --validate-only) validate_only=1 ;;
+            --force-bulk) force_bulk=1 ;;
+            --bulk-threshold=*) bulk_threshold="${arg#*=}" ;;
+            *) die "Unknown arg: $arg" ;;
+        esac
+    done
+
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    load_project "$name"
+
+    info "${BOLD}Sync up: $name${RST}"
+    cd_repo_root "$REPO"
+    local actual_env
+    actual_env=$(confirm_pac_profile "$PROFILE")
+
+    case "$actual_env" in
+        *prod*|*production*)
+            warn "${BOLD}PRODUCTION ENVIRONMENT${RST}"
+            local ans
+            read -r -p "Type the project name '$name' to confirm prod upload: " ans
+            [ "$ans" = "$name" ] || die "Aborted (confirm string mismatch)."
+            ;;
+    esac
+
+    local changed
+    changed=$(git diff --name-only HEAD 2>/dev/null | grep "^$SITE_DIR" | wc -l | tr -d ' ' || echo 0)
+    info "Estimated changed files: $changed"
+
+    if [ "$changed" -gt "$bulk_threshold" ] && [ "$force_bulk" = "0" ]; then
+        warn "Bulk upload risk ($changed > $bulk_threshold) — portal cache may hang."
+        info "Recommend incremental upload or --validate-only first."
+        confirm_action "Continue with bulk upload?"
+    fi
+
+    if [ "$validate_only" = "1" ]; then
+        info "Validating only (no upload)…"
+        pac paportal upload --path . --modelVersion "$MODEL_VERSION" --validateBeforeUpload
+    else
+        info "Uploading…"
+        pac paportal upload --path . --modelVersion "$MODEL_VERSION" || die "Upload failed"
+
+        # Smoke-test the portal
+        local portal_url
+        portal_url=$(echo "$actual_env" | sed 's|crm\.dynamics\.com|powerappsportals.com|; s|crm9\.dynamics\.com|powerappsportals.us|')
+        if [ -n "$portal_url" ]; then
+            local status
+            status=$(curl -sI -o /dev/null -w "%{http_code}" --max-time 30 "$portal_url" 2>/dev/null || echo 000)
+            case "$status" in
+                200) ok "Portal returns 200 — looks healthy" ;;
+                503) warn "503 (cache rebuilding) — wait 30-60s and retry" ;;
+                000) warn "Timeout — portal may be hung; check Admin Center" ;;
+                *) warn "HTTP $status — investigate" ;;
+            esac
+        fi
+    fi
+    ok "Done."
+}
+
+# ===========================================================================
+# Subcommand: doctor
+# ===========================================================================
+
+cmd_doctor() {
+    local input="${1:-}"
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    load_project "$name"
+
+    info "${BOLD}Doctor: $name${RST}"
+    cd_repo_root "$REPO"
+
+    echo
+    echo "${BOLD}## Tooling${RST}"
+    for tool in pac git python3 dotnet curl; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            ok "$tool present"
+        else
+            warn "$tool MISSING"
+        fi
+    done
+
+    echo
+    echo "${BOLD}## PAC auth${RST}"
+    if pac auth list 2>/dev/null | grep -qE "UNIVERSAL[[:space:]]+${PROFILE}\\b"; then
+        ok "Profile $PROFILE registered"
+        if pac auth select --name "$PROFILE" >/dev/null 2>&1; then
+            local actual
+            actual=$(pac org who 2>&1 | awk -F': ' '/Environment Url/{print $2; exit}')
+            if [ -n "$actual" ]; then
+                ok "Connected: $actual"
+                [ -n "$ENV_URL" ] && [ "$actual" != "$ENV_URL" ] \
+                    && warn "Configured env $ENV_URL doesn't match live $actual"
+            else
+                warn "pac org who returned no URL — re-auth needed"
+            fi
+        fi
+    else
+        err "Profile $PROFILE not registered"
+    fi
+
+    echo
+    echo "${BOLD}## Repo${RST}"
+    [ -d "$SITE_DIR" ] && ok "Site folder $SITE_DIR exists" || err "Site folder $SITE_DIR MISSING"
+    [ -f "$SITE_DIR/website.yml" ] && ok "website.yml present" || err "website.yml MISSING"
+
+    local dirty branch
+    dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    branch=$(git branch --show-current 2>/dev/null || echo "(none)")
+    echo "  Branch:           $branch"
+    echo "  Dirty files:      $dirty"
+    if [ "$dirty" -gt 50 ]; then
+        warn "High dirty count — possibly PAC noise. Try: pp down $name"
+    fi
+
+    echo
+    echo "${BOLD}## Site content counts${RST}"
+    echo "  Web pages:        $(find "$SITE_DIR/web-pages" -name "*.webpage.yml" 2>/dev/null | wc -l | tr -d ' ')"
+    echo "  Web templates:    $(find "$SITE_DIR/web-templates" -name "*.webtemplate.source.html" 2>/dev/null | wc -l | tr -d ' ')"
+    echo "  Content snippets: $(find "$SITE_DIR/content-snippets" -name "*.contentsnippet.value.html" 2>/dev/null | wc -l | tr -d ' ')"
+    echo "  Table perms:      $(find "$SITE_DIR/table-permissions" -name "*.tablepermission.yml" 2>/dev/null | wc -l | tr -d ' ')"
+    echo "  Custom JS files:  $(find "$SITE_DIR/web-pages" "$SITE_DIR/web-files" -name "*.js" 2>/dev/null | wc -l | tr -d ' ')"
+    echo
+    ok "Done."
+}
+
+# ===========================================================================
+# Subcommand: solution-down / solution-up
+# ===========================================================================
+
+cmd_solution_down() {
+    local input="${1:-}"
+    local solution="${2:-}"
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    load_project "$name"
+
+    # Pick the solution
+    if [ -z "$solution" ]; then
+        if [ "${#SOLUTIONS[@]}" -eq 0 ]; then
+            die "No solutions configured for $name. Pass one explicitly: pp solution-down $name <SolutionName>"
+        elif [ "${#SOLUTIONS[@]}" -eq 1 ]; then
+            solution="${SOLUTIONS[0]}"
+            info "Using solution: $solution"
+        else
+            echo "Multiple solutions configured for $name:"
+            local i=1
+            for s in "${SOLUTIONS[@]}"; do
+                echo "  $i) $s"
+                i=$((i+1))
+            done
+            local pick
+            read -r -p "Pick number or name: " pick
+            if [[ "$pick" =~ ^[0-9]+$ ]]; then
+                solution="${SOLUTIONS[$((pick-1))]}"
+            else
+                solution="$pick"
+            fi
+        fi
+    fi
+
+    info "${BOLD}Solution down: $name / $solution${RST}"
+    cd_repo_root "$REPO"
+    confirm_pac_profile "$PROFILE" >/dev/null
+
+    mkdir -p "$SCHEMA_DIR"
+    local zipfile="$SCHEMA_DIR/${solution}.zip"
+    local unpack_dir="$SCHEMA_DIR/$solution"
+
+    confirm_action "Export solution '$solution'?"
+
+    info "Exporting (may take 60-120s)…"
+    pac solution export --name "$solution" --path "$zipfile" --managed false || die "Export failed"
+    [ -f "$zipfile" ] || die "No zipfile produced"
+
+    info "Unpacking to $unpack_dir"
+    rm -rf "$unpack_dir.new"
+    pac solution unpack --zipfile "$zipfile" --folder "$unpack_dir.new" --packagetype Unmanaged || die "Unpack failed"
+
+    if [ -d "$unpack_dir" ]; then
+        rm -rf "$unpack_dir.bak"
+        mv "$unpack_dir" "$unpack_dir.bak"
+    fi
+    mv "$unpack_dir.new" "$unpack_dir"
+    rm -rf "$unpack_dir.bak"
+    rm -f "$zipfile"
+
+    local entity_count
+    entity_count=$(find "$unpack_dir/Entities" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+    ok "Done. Entities unpacked: $entity_count"
+    git status -s "$SCHEMA_DIR" | head -10
+}
+
+cmd_solution_up() {
+    local input="${1:-}"
+    local solution="${2:-}"
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    load_project "$name"
+
+    # Pick solution (same logic as solution-down)
+    if [ -z "$solution" ]; then
+        if [ "${#SOLUTIONS[@]}" -eq 0 ]; then
+            die "No solutions configured for $name."
+        elif [ "${#SOLUTIONS[@]}" -eq 1 ]; then
+            solution="${SOLUTIONS[0]}"
+        else
+            echo "Multiple solutions:"
+            local i=1
+            for s in "${SOLUTIONS[@]}"; do
+                echo "  $i) $s"; i=$((i+1))
+            done
+            local pick
+            read -r -p "Pick number or name: " pick
+            if [[ "$pick" =~ ^[0-9]+$ ]]; then
+                solution="${SOLUTIONS[$((pick-1))]}"
+            else
+                solution="$pick"
+            fi
+        fi
+    fi
+
+    info "${BOLD}Solution up: $name / $solution${RST}"
+    cd_repo_root "$REPO"
+    local actual_env
+    actual_env=$(confirm_pac_profile "$PROFILE")
+
+    local unpack_dir="$SCHEMA_DIR/$solution"
+    [ -d "$unpack_dir" ] || die "$unpack_dir does not exist. Did you run pp solution-down first?"
+
+    warn "Solution import is DESTRUCTIVE — overwrites schema in target env."
+    confirm_action "Confirm import '$solution' to $actual_env ?"
+
+    case "$actual_env" in
+        *prod*|*production*)
+            warn "${BOLD}PRODUCTION ENVIRONMENT${RST}"
+            local ans
+            read -r -p "Type the solution name '$solution' to confirm: " ans
+            [ "$ans" = "$solution" ] || die "Aborted."
+            ;;
+    esac
+
+    local zipfile="$SCHEMA_DIR/${solution}.zip"
+    info "Packing…"
+    pac solution pack --folder "$unpack_dir" --zipfile "$zipfile" --packagetype Unmanaged || die "Pack failed"
+
+    info "Importing… (may take several minutes)"
+    pac solution import --path "$zipfile" --publish-changes --activate-plugins || die "Import failed"
+
+    rm -f "$zipfile"
+    ok "Done."
+}
+
+# ===========================================================================
+# Subcommand: audit (delegates to pp-permissions-audit)
+# ===========================================================================
+
+cmd_audit() {
+    local input="${1:-}"
+    shift || true
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    load_project "$name"
+
+    cd_repo_root "$REPO"
+
+    # Find audit.py — try plugin cache first, then PYTHONPATH-style fallback
+    local audit_py
+    audit_py=$(find "$HOME/.claude/plugins/cache/nq-claude-plugins/pp-permissions-audit" \
+        -name "audit.py" 2>/dev/null | sort -V | tail -1)
+    [ -n "$audit_py" ] || die "pp-permissions-audit plugin not installed"
+
+    info "${BOLD}Audit: $name${RST}"
+    info "Site:  $SITE_DIR"
+    python3 "$audit_py" "$SITE_DIR" "$@"
+}
+
+# ===========================================================================
+# Subcommand: project (add / remove / edit)
+# ===========================================================================
+
+cmd_project_add() {
+    ensure_config_dirs
+    local name="${1:-}"
+    [ -z "$name" ] && { read -r -p "Project name: " name; }
+    [ -z "$name" ] && die "Project name required"
+    [ -f "$PP_PROJECTS_DIR/$name.conf" ] && die "$name already exists. Use 'pp project edit' or remove first."
+
+    local repo site_dir profile website_id env_url solutions branch
+    read -r -p "Repo path:       " repo
+    read -r -p "Site folder (relative): " site_dir
+    read -r -p "PAC profile:     " profile
+    read -r -p "Website ID:      " website_id
+    read -r -p "Env URL:         " env_url
+    read -r -p "Solutions (comma-separated): " solutions
+    read -r -p "Default branch:  " branch
+
+    cat > "$PP_PROJECTS_DIR/$name.conf" <<EOF
+# $name — created by 'pp project add'
+NAME="$name"
+REPO="$repo"
+SITE_DIR="$site_dir"
+PROFILE="$profile"
+WEBSITE_ID="$website_id"
+ENV_URL="$env_url"
+MODEL_VERSION="2"
+SCHEMA_DIR="dataverse-schema"
+BRANCH="$branch"
+TAGS=""
+EOF
+    if [ -n "$solutions" ]; then
+        printf 'SOLUTIONS=(' >> "$PP_PROJECTS_DIR/$name.conf"
+        local IFS=','
+        for s in $solutions; do
+            printf '"%s" ' "$(echo "$s" | xargs)" >> "$PP_PROJECTS_DIR/$name.conf"
+        done
+        printf ')\n' >> "$PP_PROJECTS_DIR/$name.conf"
+    fi
+    ok "Registered $name"
+
+    local alias_input
+    read -r -p "Add an alias? (blank = none): " alias_input
+    if [ -n "$alias_input" ]; then
+        echo "${alias_input}=${name}" >> "$PP_ALIASES_FILE"
+        ok "Alias: pp <op> $alias_input"
+    fi
+}
+
+cmd_project_remove() {
+    local input="${1:-}"
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    confirm_action "Remove $name?"
+    rm -f "$PP_PROJECTS_DIR/$name.conf"
+    # Remove aliases that point to this project
+    if [ -f "$PP_ALIASES_FILE" ]; then
+        sed -i.bak "/=${name}\$/d" "$PP_ALIASES_FILE" 2>/dev/null \
+            || sed -i '' "/=${name}\$/d" "$PP_ALIASES_FILE"
+        rm -f "${PP_ALIASES_FILE}.bak"
+    fi
+    [ -f "$PP_ACTIVE_FILE" ] && [ "$(cat "$PP_ACTIVE_FILE")" = "$name" ] && rm -f "$PP_ACTIVE_FILE"
+    ok "Removed $name"
+}
+
+cmd_project_edit() {
+    local input="${1:-}"
+    local name
+    name=$(resolve_project "$input") || die "Unknown project: $input"
+    "${EDITOR:-vi}" "$PP_PROJECTS_DIR/$name.conf"
+}
+
+cmd_alias_add() {
+    ensure_config_dirs
+    local alias_name="${1:-}"
+    local target="${2:-}"
+    [ -z "$alias_name" ] || [ -z "$target" ] && die "Usage: pp alias add <alias> <project>"
+    local resolved
+    resolved=$(resolve_project "$target") || die "Unknown target: $target"
+    if grep -qE "^${alias_name}=" "$PP_ALIASES_FILE" 2>/dev/null; then
+        sed -i.bak "/^${alias_name}=/d" "$PP_ALIASES_FILE" 2>/dev/null \
+            || sed -i '' "/^${alias_name}=/d" "$PP_ALIASES_FILE"
+        rm -f "${PP_ALIASES_FILE}.bak"
+    fi
+    echo "${alias_name}=${resolved}" >> "$PP_ALIASES_FILE"
+    ok "Alias added: $alias_name -> $resolved"
+}
+
+cmd_alias_list() {
+    ensure_config_dirs
+    [ -s "$PP_ALIASES_FILE" ] || { info "No aliases registered."; return; }
+    column -t -s= "$PP_ALIASES_FILE"
+}
+
+# ===========================================================================
+# Subcommand: help
+# ===========================================================================
+
+cmd_help() {
+    cat <<'EOF'
+pp — Power Pages CLI dispatcher
+
+USAGE
+    pp <command> [project] [options]
+
+PROJECT REGISTRY
+    pp setup                       Interactive bootstrap (auto-detect projects + PAC profiles)
+    pp list                        List all registered projects
+    pp show <project>              Show details for a project
+    pp project add [name]          Register a new project
+    pp project edit <project>      Edit a project's config in $EDITOR
+    pp project remove <project>    Remove a project (and its aliases)
+    pp alias add <alias> <project> Add a shorthand alias for a project
+    pp alias list                  List all aliases
+
+ENV / PROJECT SWITCHING
+    pp switch <project>            Set as the active project (also pac auth select)
+    pp status                      Show currently active project + live env
+
+SYNC OPERATIONS  (project arg required, alias OK)
+    pp down <project> [--no-clean]
+    pp up   <project> [--validate-only] [--force-bulk] [--bulk-threshold=N]
+    pp doctor <project>
+    pp solution-down <project> [solution]
+    pp solution-up   <project> [solution]
+    pp audit <project> [--severity ERROR|WARN|INFO] [--exit-code] [--json]
+
+PROJECT NAME RESOLUTION
+    Order:  exact match  >  alias  >  unique prefix
+    "acm"    resolves to "acme-dev"     if no other "acm*" projects exist
+    "ac"     resolves via alias if you set one with `pp alias add ac acme-dev`
+
+EXAMPLES
+    pp setup
+    pp list
+    pp down acme                   # exact match
+    pp up ac                       # alias resolution
+    pp audit acme --severity ERROR --exit-code     # CI-friendly
+    pp solution-down acme MyAcmeSolution
+    pp switch acme-client
+    pp status
+
+CONFIG LOCATION
+    $HOME/.config/nq-pp-sync/projects/<name>.conf   per-project config (sourced bash)
+    $HOME/.config/nq-pp-sync/aliases                alias=target  one per line
+    $HOME/.config/nq-pp-sync/active                 currently active project name
+EOF
+}
+
+# ===========================================================================
+# Dispatch
+# ===========================================================================
+
+main() {
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        setup)         cmd_setup "$@" ;;
+        list|ls)       cmd_list "$@" ;;
+        show)          cmd_show "$@" ;;
+        switch|use)    cmd_switch "$@" ;;
+        status)        cmd_status "$@" ;;
+        down|d)        cmd_down "$@" ;;
+        up|u)          cmd_up "$@" ;;
+        doctor)        cmd_doctor "$@" ;;
+        commit)        die "Use git directly or copy templates/commit.sh — pp commit not yet implemented in CLI" ;;
+        solution-down|sol-down) cmd_solution_down "$@" ;;
+        solution-up|sol-up)     cmd_solution_up "$@" ;;
+        audit)         cmd_audit "$@" ;;
+        project)
+            local sub="${1:-}"; shift || true
+            case "$sub" in
+                add)    cmd_project_add "$@" ;;
+                edit)   cmd_project_edit "$@" ;;
+                remove|rm) cmd_project_remove "$@" ;;
+                list|ls) cmd_list "$@" ;;
+                *) die "Usage: pp project {add|edit|remove|list}" ;;
+            esac
+            ;;
+        alias)
+            local sub="${1:-}"; shift || true
+            case "$sub" in
+                add)    cmd_alias_add "$@" ;;
+                list|ls) cmd_alias_list "$@" ;;
+                *) die "Usage: pp alias {add|list}" ;;
+            esac
+            ;;
+        help|-h|--help) cmd_help ;;
+        *) err "Unknown command: $cmd"; cmd_help; exit 2 ;;
+    esac
+}
+
+main "$@"
