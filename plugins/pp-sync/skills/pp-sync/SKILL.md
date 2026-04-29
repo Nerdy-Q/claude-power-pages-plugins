@@ -207,7 +207,7 @@ chmod +x /path/to/repo/*.sh
 
 ## What this skill does NOT do
 
-- **Edit Liquid or JS files** — that's plain text editing, not a sync operation. Use the `pp-liquid` skill for templating help.
+- **Edit Liquid or JS files** — that's plain text editing, not a sync operation. Use the `pp-portal` skill for templating help.
 - **Audit permissions** — use the `pp-permissions-audit` skill.
 - **Configure Power Pages from scratch** — use Microsoft's `power-pages` plugin for site creation flows.
 - **Manage Dataverse schema directly** — use the `dataverse` plugin (`dv-metadata`, `dv-solution`).

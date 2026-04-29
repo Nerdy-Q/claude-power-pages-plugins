@@ -65,7 +65,7 @@ Sync up; restart the portal cache via Admin Center if changes don't appear immed
 
 **Cause #1**: User is not authenticated. Anonymous users can't call this Web API endpoint.
 
-**Fix**: Either authenticate the user (redirect to /SignIn first), or grant the Anonymous Users role a Table Permission allowing the operation (carefully — see [permissions-and-roles.md](permissions-and-roles.md)).
+**Fix**: Either authenticate the user (redirect to /SignIn first), or grant the Anonymous Users role a Table Permission allowing the operation (carefully — see [../data/permissions-and-roles.md](../data/permissions-and-roles.md)).
 
 **Cause #2**: Anti-forgery token request failed (`window.shell.getTokenDeferred()` returned an error).
 
@@ -75,7 +75,7 @@ Sync up; restart the portal cache via Admin Center if changes don't appear immed
 
 **Cause #1**: `__RequestVerificationToken` header missing or stale.
 
-**Fix**: Use the `safeAjax` pattern from [webapi-patterns.md](webapi-patterns.md) — never call `fetch('/_api/...')` directly without the token. Detect via `pp-permissions-audit` (WRN-004).
+**Fix**: Use the `safeAjax` pattern from [../data/webapi-patterns.md](../data/webapi-patterns.md) — never call `fetch('/_api/...')` directly without the token. Detect via `pp-permissions-audit` (WRN-004).
 
 **Cause #2**: Table Permission denies the scope. The user has a Web Role, but no permission rule allows this operation on this entity at a scope reachable for them.
 
@@ -168,7 +168,7 @@ Detect via `pp-permissions-audit` (INFO-007).
 
 **Cause**: Using a filter that doesn't exist in DotLiquid (often a Shopify-only filter like `where_exp`, `pluralize`, `time_ago_in_words`).
 
-**Fix**: See [filters-reference.md](filters-reference.md) "Filters that DON'T exist" section for alternatives.
+**Fix**: See [../language/filters.md](../language/filters.md) "Filters that DON'T exist" section for alternatives.
 
 ### `Liquid error: undefined method 'fetchxml'`
 
@@ -200,7 +200,7 @@ Detect via `pp-permissions-audit` (INFO-007).
 3. Verify with browser
 4. Future uploads: do incrementally (1-3 files at a time, verify between)
 
-See [pp-sync sync workflow](../../../pp-sync/skills/pp-sync/references/safety-checks.md) for full recovery procedure.
+See [pp-sync sync workflow](../../../../pp-sync/skills/pp-sync/references/safety-checks.md) for full recovery procedure.
 
 ## Studio preview shows blank or errors
 

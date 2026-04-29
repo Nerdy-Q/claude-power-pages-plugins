@@ -202,7 +202,7 @@ After a successful upload:
 
 - Verify in browser by visiting the portal URL
 - Check for 5xx in Power Platform Admin Center → site → metrics
-- If a published page renders blank, check base vs localized file sync (see `pp-liquid` skill, `hybrid-page-idiom.md`)
+- If a published page renders blank, check base vs localized file sync (see `pp-portal` skill, `references/pages/hybrid-page-idiom.md`)
 
 ## Auth troubleshooting
 

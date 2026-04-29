@@ -41,7 +41,7 @@ A **rigid action skill** — has a checklist of steps that must run in order. De
 
 ## What this skill does NOT do
 
-- Edit Liquid or JS files — use the `pp-liquid` skill
+- Edit Liquid or JS files — use the `pp-portal` skill
 - Audit permissions — use the `pp-permissions-audit` skill
 - Configure Power Pages from scratch — use Microsoft's `power-pages` plugin
 - Manage Dataverse schema interactively — use the `dataverse` plugin

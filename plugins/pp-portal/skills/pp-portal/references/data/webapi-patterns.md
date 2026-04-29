@@ -19,7 +19,51 @@ A 401 from `/_api/...` almost always means: missing site setting, missing table 
 
 ## The safeAjax helper (canonical pattern)
 
-Every Power Pages portal needs a wrapper around the browser fetch API that handles the anti-forgery token. Drop this in a custom-javascript file:
+Every Power Pages portal needs a wrapper around its HTTP client that handles the anti-forgery token. There are two shapes you'll see in the wild — start with whichever matches the rest of the portal's JS.
+
+### Microsoft's canonical safeAjax pattern (the one you'll see in legacy portal code)
+
+This is the verbatim helper from Microsoft's `web-api-http-requests-handle-errors` documentation. It depends on jQuery (already loaded by every portal) and the portal-shipped `validateLoginSession` function, and is invoked with the standard `$.ajax` options shape (`type`, `url`, `contentType`, `data`, `success`, `error`).
+
+```javascript
+(function(webapi, $) {
+  function safeAjax(ajaxOptions) {
+    var deferredAjax = $.Deferred();
+    shell.getTokenDeferred().done(function(token) {
+      if (!ajaxOptions.headers) {
+        $.extend(ajaxOptions, { headers: { "__RequestVerificationToken": token } });
+      } else {
+        ajaxOptions.headers["__RequestVerificationToken"] = token;
+      }
+      $.ajax(ajaxOptions)
+        .done(function(data, textStatus, jqXHR) {
+          validateLoginSession(data, textStatus, jqXHR, deferredAjax.resolve);
+        }).fail(deferredAjax.reject);
+    }).fail(function() { deferredAjax.rejectWith(this, arguments); });
+    return deferredAjax.promise();
+  }
+  webapi.safeAjax = safeAjax;
+})(window.webapi = window.webapi || {}, jQuery);
+```
+
+Invocation shape — note this is **jQuery `$.ajax`**, not `fetch`:
+
+```javascript
+webapi.safeAjax({
+  type:        'POST',
+  url:         '/_api/contacts',
+  contentType: 'application/json',
+  data:        JSON.stringify(payload),
+  success:     function (data, textStatus, xhr) { /* ... */ },
+  error:       function (xhr, textStatus, err) { /* ... */ }
+});
+```
+
+`validateLoginSession` is the portal's session-expiry guard — when the user's portal session has silently lapsed, the response is an HTML login page rather than the expected JSON, and `validateLoginSession` redirects rather than running `success` with HTML. **Keep this version when the portal already loads jQuery and the `validateLoginSession` shim** (every standard Power Pages template does).
+
+### Modernized fetch-based version (preferred for new code, but loses validateLoginSession)
+
+If you're building a fresh portal that doesn't ship jQuery (rare) or you want a Promise-native API, the same wrapper rebuilt on the browser `fetch` API. **Trade-off**: you lose the `validateLoginSession` session-expiry redirect — if the portal session lapses mid-request you'll see HTML come back where JSON was expected, and you have to detect/handle it yourself.
 
 ```javascript
 function getToken() {
@@ -69,7 +113,6 @@ Why this helper exists:
 
 - `window.shell.getTokenDeferred()` is the official way to obtain the anti-forgery token. It returns a jQuery `Deferred`, hence the `.done().fail()` shape — wrapping it in a native Promise smooths the rest of the code.
 - `credentials: 'same-origin'` is required so the portal session cookie travels with the request.
-- OData v4 headers are required; v3 is rejected.
 - Reading `.text()` on error rather than `.json()` because Web API errors are sometimes returned as HTML (auth wall) or plain text (CSRF rejection).
 
 ## GET — read with $select / $filter / $orderby / $expand
@@ -127,19 +170,25 @@ safeAjax({
 })
 .then(function (response) {
   // Power Pages POST responses include the new GUID either:
-  //  (a) in the OData-EntityId response header, or
+  //  (a) in a response header (see note below), or
   //  (b) as the response body when Prefer: return=representation is set
   var entityId = getEntityId(response);
   window.location.href = '/customer-details?id=' + encodeURIComponent(entityId) + '&type=contact';
 });
 
 function getEntityId(response) {
-  var headerVal = response.headers && response.headers.get && response.headers.get('OData-EntityId');
+  if (!response.headers || !response.headers.get) return null;
+  // Microsoft's canonical Power Pages samples read `entityid`;
+  // the OData spec uses `OData-EntityId`. Fall back through both.
+  var headerVal = response.headers.get('entityid')
+               || response.headers.get('OData-EntityId');
   if (!headerVal) return null;
   var match = /\(([^)]+)\)/.exec(headerVal);
   return match ? match[1] : null;
 }
 ```
+
+> Header naming: Microsoft's official Power Pages samples read the new record's GUID from the **`entityid`** response header (their canonical `safeAjax` POST sample shows `xhr.getResponseHeader("entityid")`). The OData v4 spec defines this header as **`OData-EntityId`**, and Dataverse direct also returns that name. Read both — the portal layer normalizes inconsistently across versions, and code that only checks one header occasionally returns `null` GUIDs in the wild.
 
 Add `Prefer: return=representation` if you need the full created record back:
 
@@ -202,6 +251,43 @@ safeAjax({
 ```
 
 PATCH returns 204 No Content on success. To get the updated record back, add `Prefer: return=representation`.
+
+## PUT — single-property update
+
+When you need to update **one column** in isolation (no other fields touched, no risk of accidentally clobbering a concurrent edit elsewhere on the record), Power Pages supports OData's single-property `PUT`:
+
+```javascript
+safeAjax({
+  url: '/_api/contacts(' + id + ')/firstname',
+  type: 'PUT',
+  contentType: 'application/json',
+  data: JSON.stringify({ value: 'Jane' })
+});
+```
+
+The URL ends in the **logical attribute name** of the column you're updating (here, `firstname`), and the body is `{ "value": <new value> }`. Returns 204 No Content. Most teams stick with `PATCH` for everything; `PUT` is useful when you specifically want the narrowest possible write contract — e.g. a single-cell inline edit.
+
+## Associate / Disassociate via $ref
+
+To wire two existing records together (or unwire them) without touching any other columns, use the OData `$ref` collection on the navigation property. This is the right shape for many-to-many relationships and for changing a many-to-one lookup without sending a `PATCH`:
+
+```javascript
+// Associate two records (set a many-to-many or many-to-one):
+safeAjax({
+  url: '/_api/contacts(' + contactId + ')/parentcustomerid_account/$ref',
+  type: 'PUT',
+  contentType: 'application/json',
+  data: JSON.stringify({ '@odata.id': '/_api/accounts(' + accountId + ')' })
+});
+
+// Disassociate:
+safeAjax({
+  url: '/_api/contacts(' + contactId + ')/parentcustomerid_account/$ref',
+  type: 'DELETE'
+});
+```
+
+The path segment after the source record (`parentcustomerid_account` above) is the **navigation property name** — same case-sensitive value used in `@odata.bind` payloads, including the polymorphic `_<entity>` suffix for customer-type lookups. Both operations return 204 No Content on success.
 
 ## DELETE
 
@@ -313,3 +399,5 @@ For 400, parse the JSON body for the human-readable message:
   }
 });
 ```
+
+> Verified against Microsoft Learn 2026-04-29.

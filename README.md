@@ -12,7 +12,7 @@ If you build classic Power Pages sites — particularly the hybrid pattern where
 
 | Plugin | Purpose |
 |---|---|
-| [`pp-liquid`](plugins/pp-liquid/) | Microsoft Power Pages classic Liquid templating reference — Web Templates, FetchXML in Liquid, Web API in custom JS, hybrid pages, DotLiquid gotchas, troubleshooting |
+| [`pp-portal`](plugins/pp-portal/) | Microsoft Power Pages classic portals — hybrid Liquid + Web API pattern. Categorized references: language (operators / tags / filters / objects / DotLiquid gotchas), data (Web API / FetchXML / Dataverse naming / permissions), pages (hybrid idiom / styling / bundled libraries), workflow (sync), quality (accessibility / troubleshooting) |
 | [`pp-sync`](plugins/pp-sync/) | Action skill + `pp` CLI for running portal sync workflows safely — `pac paportal` + project registry + alias resolution + bulk-upload safety guards + 6 ready-to-drop wrapper templates |
 | [`pp-permissions-audit`](plugins/pp-permissions-audit/) | Static-analysis audit of a portal's Web Roles, Table Permissions, Site Settings, Web API config, AND (when `dataverse-schema/` is present) FetchXML + `$select=` field references — 18 checks including base-vs-localized blank-page detection, polymorphic lookup pre-emption, missing anti-forgery tokens, schema-aware field validation, and divergent base/localized pair detection. Drop-in [GitHub Action template](plugins/pp-permissions-audit/CI.md) for PR gating. |
 
@@ -20,7 +20,7 @@ If you build classic Power Pages sites — particularly the hybrid pattern where
 
 ```bash
 claude plugin marketplace add https://github.com/Nerdy-Q/claude-plugins
-claude plugin install pp-liquid@nq-claude-plugins
+claude plugin install pp-portal@nq-claude-plugins
 claude plugin install pp-sync@nq-claude-plugins
 claude plugin install pp-permissions-audit@nq-claude-plugins
 ```
@@ -59,7 +59,7 @@ If the marketplace was already added, re-add it to refresh: `claude plugin marke
 
 ## Conventions
 
-- **Plugin slugs**: short, kebab-case, prefixed with the platform if ambiguous (`pp-liquid` for Power Pages Liquid; `dv-*` is reserved for Microsoft's `dataverse` plugin)
+- **Plugin slugs**: short, kebab-case, prefixed with the platform if ambiguous (`pp-*` for Power Pages classic portals; `dv-*` is reserved for Microsoft's `dataverse` plugin)
 - **Skill descriptions**: must include both positive triggers ("use when…") and explicit negatives ("NOT for…") so the description-gated skill loader doesn't drift onto unrelated tasks
 - **Reference files**: keep `SKILL.md` lean (overview + critical gotchas + decision routing); push detail to `references/<topic>.md` so the model lazy-loads only what it needs
 - **No client-specific identifiers in shipped content** — anonymize examples using fictional company names (Acme, Contoso) or placeholder syntax (`<your-prefix>_<field>`)

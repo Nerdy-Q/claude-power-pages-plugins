@@ -22,7 +22,7 @@ nq-claude-plugins/
 | Change type | File to edit |
 |---|---|
 | New audit check | `plugins/pp-permissions-audit/skills/pp-permissions-audit/scripts/audit.py` (add a `check_*` function, register in `main()`, document in `references/checks.md`) |
-| New Liquid pattern, gotcha, or troubleshooting recipe | The relevant file in `plugins/pp-liquid/skills/pp-liquid/references/` |
+| New Liquid pattern, gotcha, or troubleshooting recipe | The relevant file under `plugins/pp-portal/skills/pp-portal/references/<category>/` (categories: `language/`, `data/`, `pages/`, `workflow/`, `quality/`) |
 | New `pp` subcommand | `plugins/pp-sync/bin/pp` (add a `cmd_*` function, register in `main()`, document in `references/cli-reference.md`) |
 | New wrapper script template | `plugins/pp-sync/templates/<name>.sh` plus an entry in `templates/README.md` |
 | New skill on top of existing plugins | New plugin under `plugins/<name>/`, register in `marketplace.json` |
@@ -72,7 +72,7 @@ claude plugin validate .                                        # marketplace
 
 ```bash
 claude plugin marketplace add /path/to/nq-claude-plugins
-claude plugin install pp-liquid@nq-claude-plugins
+claude plugin install pp-portal@nq-claude-plugins
 ```
 
 ## Conventions
@@ -85,7 +85,7 @@ claude plugin install pp-liquid@nq-claude-plugins
 ## Reporting issues
 
 - Bugs in the audit (false positives / false negatives): include the smallest YAML or JS snippet that reproduces, plus the expected behavior
-- Missing Liquid pattern: PR a new section in the relevant `pp-liquid` reference file
+- Missing Liquid pattern: PR a new section in the relevant `pp-portal` reference file (under the appropriate category subdir)
 - `pp` CLI bugs: include the project conf, the command, and the actual vs expected output
 
 ## License

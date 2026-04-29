@@ -9,9 +9,9 @@
     },
     "plugins": [
         {
-            "name": "pp-liquid",
-            "source": "./plugins/pp-liquid",
-            "description": "Microsoft Power Pages classic Liquid templating skill — Web Templates, FetchXML in Liquid, Web API in custom JS, hybrid pages, DotLiquid gotchas, and pac paportal sync.",
+            "name": "pp-portal",
+            "source": "./plugins/pp-portal",
+            "description": "Microsoft Power Pages classic portals — the hybrid Liquid + Web API pattern. Server-rendered Liquid templates with client-side Web API calls in custom JS. Use for *.webpage.copy.html, *.webtemplate.source.html, *.webpage.custom_javascript.js, fetchxml, entitylist/entityform/webform, web roles, table permissions, and pac paportal. NOT for code sites (use Microsoft's power-pages plugin); for Dataverse-side work, defer to Microsoft's dataverse plugin.",
             "category": "development",
             "tags": [
                 "power-pages",
@@ -21,6 +21,8 @@
                 "dataverse",
                 "fetchxml",
                 "webapi",
+                "hybrid",
+                "classic-portal",
                 "microsoft"
             ]
         },

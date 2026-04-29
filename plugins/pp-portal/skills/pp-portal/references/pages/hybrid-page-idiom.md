@@ -166,7 +166,7 @@ If your JS needs richer data than `data-*` attributes allow, emit JSON in a `<sc
 Why this works:
 
 - `<script type="application/json">` — the browser does not execute the content; a JSON syntax error doesn't crash other scripts.
-- `"` is the valid JSON Unicode escape for `"` — the standard `replace: '"', '\\"'` filter chain in DotLiquid produces three characters (backslash, backslash, quote) instead of two, which silently breaks JSON parsing. See [dotliquid-gotchas.md](dotliquid-gotchas.md).
+- `"` is the valid JSON Unicode escape for `"` — the standard `replace: '"', '\\"'` filter chain in DotLiquid produces three characters (backslash, backslash, quote) instead of two, which silently breaks JSON parsing. See [../language/dotliquid-gotchas.md](../language/dotliquid-gotchas.md).
 - **Do NOT use `| escape`** — it produces HTML entities (`&quot;`) that stay literal inside `<script>` tags.
 
 ## Wizard pattern (multi-step, server-side state)

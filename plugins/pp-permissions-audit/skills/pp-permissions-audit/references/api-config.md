@@ -8,11 +8,11 @@ To expose `<entity>` via `/_api/<entity>`, both of these must be present and act
 
 | Site Setting Name | Required | Example value | Effect |
 |---|---|---|---|
-| `Webapi/<entity>/Enabled` | Yes | `true` | Switches Web API on for this entity |
-| `Webapi/<entity>/Fields` | Yes | `field1,field2,field3` or `*` | Whitelist of readable/writable fields |
+| `Webapi/<entity>/enabled` | Yes | `true` | Switches Web API on for this entity |
+| `Webapi/<entity>/fields` | Yes | `field1,field2,field3` or `*` | Whitelist of readable/writable fields |
 
 Notes:
-- The path is **case-insensitive** but conventionally PascalCase: `Webapi/<entity>/Enabled` (capital E)
+- The path is **case-insensitive**; **Microsoft documentation uses lowercase consistently**: `Webapi/<entity>/enabled`
 - `<entity>` is the **logical name**, not display name. `contact`, not `Contact`. `contoso_consultant`, not `EnfConsultant`.
 - Value comparison is case-insensitive: `true`, `True`, `TRUE` all enable the API.
 
@@ -22,15 +22,15 @@ These control Web API behavior at the portal level, not per-entity:
 
 | Site Setting | Effect |
 |---|---|
-| `Webapi/error/innererror/enabled` | If `true`, error responses include inner exception details. Useful for dev; **disable in prod** to avoid leaking stack traces. |
-| `Webapi/<entity>/disablefilter` | If `true`, `$filter` queries on this entity are disabled. Limits Web API to ID-based reads. |
+| `Webapi/error/innererror` | If `true`, error responses include inner exception details. Useful for dev; **disable in prod** to avoid leaking stack traces. |
+| `Webapi/<entity>/disableodatafilter` | If `true`, `$filter` queries on this entity are disabled. Limits Web API to ID-based reads. *Available portal version 9.4.10.74+.* |
 
 ## Field whitelist patterns
 
 ### Wildcard
 
 ```
-Webapi/<entity>/Fields = *
+Webapi/<entity>/fields = *
 ```
 
 All fields readable. **Risky** for entities that may gain fields later. Avoid for tables with PII or financial data.
@@ -38,7 +38,7 @@ All fields readable. **Risky** for entities that may gain fields later. Avoid fo
 ### Explicit comma-separated list
 
 ```
-Webapi/<entity>/Fields = firstname,lastname,emailaddress1,telephone1
+Webapi/<entity>/fields = firstname,lastname,emailaddress1,telephone1
 ```
 
 Only listed fields are exposed. Adding a new field is opt-in. **Recommended pattern** for any entity touched in production.
@@ -48,7 +48,7 @@ Only listed fields are exposed. Adding a new field is opt-in. **Recommended patt
 To expose a lookup or relationship field:
 
 ```
-Webapi/<entity>/Fields = firstname,lastname,_parentcustomerid_value
+Webapi/<entity>/fields = firstname,lastname,_parentcustomerid_value
 ```
 
 Lookup values come back as `_<lookup>_value` (the GUID). To get the formatted display name, request the formatted-values header in the call (`Prefer: odata.include-annotations="*"`).
@@ -92,10 +92,12 @@ The audit treats `statecode == 0` (or missing) as active. To disable a setting w
 
 | Symptom | Likely cause |
 |---|---|
-| 404 on `/_api/<entity>` | `Webapi/<entity>/Enabled` is missing or `false` |
+| 404 on `/_api/<entity>` | `Webapi/<entity>/enabled` is missing or `false` |
 | 401 on `/_api/<entity>` | User not authenticated; or the token request failed |
 | 403 on `/_api/<entity>` | Anti-forgery token missing/invalid; or Table Permission denies the scope |
-| 400 with field error | The field isn't in `Webapi/<entity>/Fields` whitelist |
+| 403 `AttributePermissionIsMissing` | Column referenced in the request is missing from the Table Permission YAML's allowed columns. |
+| 400 with field error | The field isn't in `Webapi/<entity>/fields` whitelist |
+| 400 `"No fields defined for this entity."` | `Webapi/<entity>/enabled` is `true` but the corresponding `Webapi/<entity>/fields` site setting is missing. |
 | 400 "no such navigation property" | Wrong navigation property name in `@odata.bind` (often case-sensitivity or polymorphic suffix) |
 | 500 from a custom plugin | Server-side plugin rejected the request — check error.message in the response body |
 
@@ -125,3 +127,28 @@ Power Pages also has a preview endpoint at `/api/data/v9.2/` (the standard Datav
 | `/api/data/v9.2/` (preview) | OAuth token (Bearer) | Opt-in advanced; rarely used |
 
 Most portals use `/_api/` exclusively. This audit only checks `/_api/` configuration.
+
+## Tables that CANNOT use Web API
+
+Even with `Webapi/<entity>/enabled` set to `true` and a `fields` whitelist in place, a set of ~50 `adx_*` configuration tables are **explicitly blocked** from the Power Pages Web API surface. These are internal Power Pages configuration tables (web roles, web pages, content snippets, entity forms, sitemap markers, etc.) — exposing them via Web API would let portal users read or alter the portal's own configuration, so Microsoft excludes them by design.
+
+Common ones worth knowing by name:
+
+- `adx_contentsnippet`
+- `adx_entityform`
+- `adx_entitylist`
+- `adx_webrole_systemuser`
+- `adx_webrole`
+- `adx_webpage`
+- `adx_webfile`
+- `adx_websetting`
+- `adx_sitemarker`
+- `adx_publishingstate`
+- `adx_webformsession`
+- `adx_webformstep`
+
+For the full unsupported list, see the official reference: <https://learn.microsoft.com/en-us/power-pages/configure/web-api-overview#unsupported-configuration-tables>.
+
+If your audit reports `Webapi/adx_<x>/enabled = true` for any of these, the setting is **silently ignored** by the runtime — but it should still be removed to keep the configuration surface honest and minimize drift.
+
+> Verified against Microsoft Learn 2026-04-29.
