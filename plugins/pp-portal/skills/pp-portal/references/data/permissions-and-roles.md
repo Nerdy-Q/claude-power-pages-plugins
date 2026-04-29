@@ -30,6 +30,61 @@ Two implicit roles every site has:
 
 **The most common mistake**: assuming a role isn't honored. It is — but you must explicitly assign it to the calling Contact via the `adx_contact_webrole` link table. New Contacts default to having **only** the implicit Authenticated Users role until you assign more.
 
+## Web Role assignment lifecycle
+
+How a Contact picks up a role assignment, and — more importantly — when they **don't**.
+
+### How assignment happens
+
+A Contact is granted a Web Role by inserting a row in the `adx_contact_webrole` link table. Two paths:
+
+| Path | Used by |
+|---|---|
+| Studio: **Contacts → Web Roles** tab on the Contact record | Most admin / one-off assignments |
+| Maker portal Power Apps grid on the link table | Bulk assignment scripts, automated provisioning flows |
+
+Either path produces the same row. There is no "publish" step — the assignment is live in Dataverse the instant the row commits.
+
+### The session-cache gotcha
+
+When a Web Role is added to or removed from a Contact, the user's existing portal session does **not** automatically reflect the change. Power Pages caches role membership at sign-in — every subsequent request is authorized against that cached set, not against the current `adx_contact_webrole` rows.
+
+So: dev assigns the Contractor role to a test user, hits refresh on the role-gated page, sees nothing, spends an hour debugging Liquid (`{% if user.roles contains 'Contractor' %}`) and Table Permissions, and never realizes the test user's session was opened five minutes before the role was assigned. **The role is not in the session.**
+
+### Three ways the user picks up the new role
+
+1. **Sign out and sign back in.** Cleanest. The new sign-in establishes a session with the current role set. Always do this immediately after assignment for any test user.
+2. **Wait for session expiry.** Default is around 30 minutes idle, governed by Site Setting `Authentication/SessionTimeout`. The next request after the timeout starts a fresh session. Useful for production rollouts where you don't want to force-log-out users, but unreliable for testing because you don't know exactly when the session expired.
+3. **Force-refresh the role cache via Studio (admin-only, uncommon).** Power Platform Admin Center → site → Restart drops all sessions, after which every user signs back in. Only appropriate for emergency role corrections — disruptive for active users.
+
+### Implications for testing
+
+After assigning a role to your test Contact you **must** sign out and sign back in before testing role-gated pages. A common failure mode looks like this:
+
+| Symptom | Real cause | Wasted-time outcome |
+|---|---|---|
+| User has the role in Studio, but `{% if user.roles contains 'X' %}` is false on the page | Session opened before the role was assigned | Hours debugging Liquid casing, Table Permission scope, role-name string equality |
+| Same user can hit `/_api/<entity>` from one tab, gets 403 from another | Tabs share the session, but the user re-authed in one and not the other | Confusion about CSRF / Table Permissions when neither is broken |
+| QA reports "feature works for me, not for the client" | QA signed in after assignment; client signed in before | Re-test cycle that never reproduces the actual bug |
+
+**Test loop**: assign role → sign out test user → close all browser tabs → sign back in → test. The "close all tabs" step matters because some browsers keep the session cookie across tabs even after a single tab signs out.
+
+### Rolling out to many users
+
+When updating role assignments for a population (e.g., granting "Contractor" to 200 Contacts during a launch), do **not** rely on user reports of "I can / can't see the page" to verify the rollout — those reports mix lifecycle effects (stale sessions) with actual permission errors and produce noise.
+
+Instead:
+
+1. Run a server-side audit query against `adx_contact_webrole` to confirm every targeted Contact has the row.
+2. Assume the user-visible effect rolls out gradually as sessions expire (30 min default) or on next sign-in.
+3. If the change is urgent, communicate "please sign out and back in" to affected users — don't assume they will discover it.
+4. For removed roles (downgrade), the user retains the old role for the rest of their current session. If that's a security risk, a portal restart is the only immediate fix.
+
+### Cross-references
+
+- The role-gated section recipe ([../recipes/role-gated-section.md](../recipes/role-gated-section.md)) flags this in its gotchas table; this section is the canonical explanation.
+- For UI-side lifecycle implications (e.g., a "Sign out to refresh roles" prompt needs `aria-current` semantics if it lives in nav), see [../quality/accessibility.md](../quality/accessibility.md).
+
 ## Page-level access
 
 Two ways to control which roles can reach a page:

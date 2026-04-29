@@ -303,5 +303,5 @@ $('#accountSelect').on('change', function () {
 - [../data/webapi-patterns.md](../data/webapi-patterns.md) — `safeAjax`, GET with `$select` / `$filter` / `$orderby`, "Dependent dropdown pattern" canonical example
 - [../data/dataverse-naming.md](../data/dataverse-naming.md) — entity-set name vs logical name; lookup `_value` form
 - [../data/permissions-and-roles.md](../data/permissions-and-roles.md) — Web API access (site setting + table permission + web role)
-- [../quality/accessibility.md](../quality/accessibility.md) — `aria-live`, `aria-controls`, dependent-control patterns
+- [../quality/accessibility.md](../quality/accessibility.md#async-ui-updates--aria-live-regions) — full `aria-live` pattern guide (polite vs assertive, empty-then-populate, `aria-atomic`)
 - [hybrid-form-with-safeajax.md](hybrid-form-with-safeajax.md) — full safeAjax helper context if you need POST in the same page

@@ -138,6 +138,110 @@ Most-frequent findings on real portal audits.
 | **Themes from before Sept 2022** | Older preset themes had below-AA contrast | Re-theme via Styling workspace; see Microsoft's [known-issues remediation](https://learn.microsoft.com/power-pages/known-issues#adjusting-the-background-color-for-your-power-pages-site) |
 | **`title=` tooltip as the only label** | Tooltip-as-label is unreliable on touch devices and not always read by AT | Use `<label>` for inputs; reserve `title=` for supplementary description |
 
+## Async UI updates — aria-live regions
+
+The single biggest accessibility gap on Power Pages portals after a custom JS layer is added: screen readers do **not** auto-announce DOM changes that come from XHR. Without an `aria-live` region, a user with NVDA / JAWS / VoiceOver gets no indication that loading finished, the table refreshed, the form was saved, or an error appeared. The page silently changes around them.
+
+Power Pages-specific surfaces that hit this:
+
+- Form submit success / error (custom safeAjax pattern, not the platform `{% entityform %}`)
+- Dependent dropdowns populating after a `/_api/<entity>` GET resolves
+- Pagination next / prev re-rendering a results region
+- Inline validation messages added by client-side JS
+- Search-as-you-type filtering an `{% fetchxml %}`-rendered table
+
+### Two patterns: polite vs assertive
+
+| Pattern | Attribute | When the announcement fires | Use for |
+|---|---|---|---|
+| **Status messages** (transient, low-priority) | `aria-live="polite"` | When the screen reader is idle (after the current utterance finishes) | "Loading 5 results", "Saved", "Page 3 of 8" |
+| **Alerts** (errors, validation failures) | `aria-live="assertive"` or `role="alert"` | Interrupts whatever the screen reader was reading | Form validation failure, save error, session expired |
+
+**Default to polite.** `assertive` and `role="alert"` are disruptive — using them for "Loading..." spam will train users to ignore your announcements. Reserve them for genuine errors or anything the user must hear before they continue.
+
+### The empty-then-populate pattern
+
+The most reliable way to announce an async update: put the live region in the page **before** anything happens, leave it empty, then write to it from JS once the change occurs. Live regions added to the DOM and immediately written to are unreliable across browsers and AT combos — Edge + NVDA in particular often misses them.
+
+```html
+<div id="status" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+
+<script>
+  // Update text from JS — screen reader announces automatically
+  document.getElementById('status').textContent = 'Loading 5 office branches';
+</script>
+```
+
+The `.sr-only` class is the visually-hidden pattern from the [Visually hidden, screen-reader-accessible text](#visually-hidden-screen-reader-accessible-text) section below — keep the region present in the DOM but invisible.
+
+### Why `aria-atomic="true"`
+
+Without `aria-atomic`, partial DOM updates can be announced as their diff. If the live region currently reads "Loading 5..." and you append " results", some screen readers will announce only " results" — leaving the user with no context. With `aria-atomic="true"`, the entire region is re-read on every change. For status text that's a short complete sentence, you almost always want this.
+
+### Common mistakes
+
+| Mistake | Why it breaks | Fix |
+|---|---|---|
+| Adding `aria-live` to an element **after** content is inserted | Screen reader doesn't observe a region that wasn't live when the change happened | Render the empty `<div aria-live="polite">` server-side; only write into it from JS |
+| Using `aria-live="assertive"` for non-critical status | Interrupts the user mid-thought; trains them to mute your region | Use `polite` unless it's a genuine error |
+| Forgetting `aria-atomic="true"` | "Loading 5 results" gets read as two fragments on subsequent updates | Set `aria-atomic="true"` on status regions |
+| Multiple live regions on the same page firing at once | Announcements queue or get dropped | Use one status region and one alert region per logical area; reuse them |
+| Writing via `innerHTML` with markup | AT may read the markup or skip the change entirely | Use `textContent`; if rich content is required, `innerHTML` set then a tiny `setTimeout(0)` to rewrite to a sibling can work, but textContent is the safe default |
+| `display: none` on the live region | Many AT skip hidden regions entirely | Use the `sr-only` clip pattern, not `display: none` |
+
+### Async patterns for typical Power Pages flows
+
+**Form submit (safeAjax POST).** Pair the form with both a polite status and an assertive alert:
+
+```html
+<form id="addCustomer">…</form>
+<div id="formStatus" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+<div id="formError"  role="alert" class="alert alert-danger d-none"></div>
+```
+
+```javascript
+function onSubmit(e) {
+  e.preventDefault();
+  document.getElementById('formStatus').textContent = 'Saving';
+  safeAjax({…}).done(function () {
+    document.getElementById('formStatus').textContent = 'Customer saved';
+  }).fail(function (xhr) {
+    var err = document.getElementById('formError');
+    err.textContent = parseError(xhr) || 'Save failed. Try again.';
+    err.classList.remove('d-none');
+  });
+}
+```
+
+**Dependent dropdown.** Announce on both load-start and load-complete so a slow response doesn't feel like nothing happened:
+
+```javascript
+function loadBranches(stateId) {
+  var help = document.getElementById('branchHelp');
+  help.textContent = 'Loading office branches';
+  return webapi.get('/contoso_branches?$filter=_contoso_state_value eq ' + stateId)
+    .then(function (data) {
+      populateSelect(data.value);
+      help.textContent = data.value.length + ' office branches loaded';
+    });
+}
+```
+
+**Pagination.** After re-rendering the results region, announce the page position to confirm the change registered:
+
+```javascript
+function renderPage(n, total) {
+  rebuildResultsTable(currentPageData);
+  document.getElementById('pagerStatus').textContent = 'Page ' + n + ' of ' + total;
+}
+```
+
+### When in doubt
+
+Test with NVDA + Edge (or VoiceOver + Safari) on the actual portal — not Studio preview, which strips some platform JS and lies about runtime behavior. If the screen reader says nothing when the UI changes, the live region is missing or wrong. If it interrupts the user every second, you've got `assertive` where you wanted `polite`.
+
+The [dependent-dropdown recipe](../recipes/dependent-dropdown.md) and the [hybrid form with safeAjax recipe](../recipes/hybrid-form-with-safeajax.md) both use these patterns inline.
+
 ## Custom JS / Liquid patterns
 
 ### Skip link

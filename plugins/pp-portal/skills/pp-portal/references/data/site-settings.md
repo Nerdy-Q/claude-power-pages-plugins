@@ -218,6 +218,63 @@ References: <https://learn.microsoft.com/power-pages/configure/cors-support>, <h
 
 References: <https://learn.microsoft.com/power-pages/configure/configure-site-settings>, <https://learn.microsoft.com/power-pages/configure/bootstrap-version-5>
 
+## Documents & file upload limits
+
+There is **no** Power Pages site setting named `Documents/MaxFileSize` (a common misremembering). File upload size in Power Pages is governed by a **layered** set of settings, depending on which storage backend the upload uses.
+
+### Notes (annotation) storage — the default
+
+When attachments save to the `annotation` table (Notes storage), the binding ceiling is the **Dataverse environment** setting, not a Power Pages site setting:
+
+| Setting | Where | Default | Max | Purpose |
+|---|---|---|---|---|
+| `Organization.MaxUploadFileSize` | Power Platform admin → Environment → Settings → Email tab | 5 MB | 128 MB | Hard cap on annotation `documentbody` size, applied to base64-encoded payload (so net file ceiling is ~75% of the value) |
+
+Per-form, the **Studio** "Upload size limit per file (in KB)" on the form's Attachments panel clamps it lower for that form. The Studio control is the per-form ceiling; the env-level setting is the absolute ceiling.
+
+### SharePoint document management
+
+When the parent entity has SharePoint document management enabled (see [Manage SharePoint documents](https://learn.microsoft.com/power-pages/configure/manage-sharepoint-documents)), attachments route to SharePoint instead of Notes. Two Power Pages site settings:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `SharePoint/MaxUploadSize` | `10` (MB) | Per-file SharePoint upload ceiling. Max **50 MB**. Value in MB. |
+| `SharePoint/MaxTotalUploadSize` | (no default; advisory) | Combined size cap across multi-file uploads. Value in MB. |
+
+Reference: <https://learn.microsoft.com/power-pages/configure/manage-sharepoint-documents#configure-file-upload-size>
+
+### Azure Blob Storage Web API path
+
+When the site uses the Azure Blob Storage upload Web API (`Site/FileManagement/EnableWebAPI = true`), a separate set of settings applies:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `Site/FileManagement/EnableWebAPI` | `false` | Master toggle. **Required** for any of the rest. |
+| `Site/FileManagement/BlobStorageAccountName` | (none) | Azure storage account name. **Required.** |
+| `Site/FileManagement/BlobStorageContainerName` | (none) | Azure container name. **Required.** |
+| `Site/FileManagement/SupportedFileType` | (none) | Comma-separated extensions, e.g. `.pdf,.jpg,.png`. **Required.** |
+| `Site/FileManagement/SupportedMimeType` | (none) | Semicolon-separated MIME types. **Required.** |
+| `Site/FileManagement/MaxFileSize` | `1048576` (KB, ~1 GB) | Max per-file size. **In KB**, not bytes. |
+| `Site/FileManagement/DownloadViaSASUri` | `true` | Use SAS URI for downloads. |
+| `Site/FileManagement/DownloadSASUriExpiryTimeSpan` | `00:10:00` | SAS URI expiry. Used only when SAS download is enabled. |
+| `Site/FileManagement/DownloadChunkSizeInKB` | `4096` (4 MB) | Chunk size for non-SAS downloads. |
+
+Reference: <https://learn.microsoft.com/power-pages/configure/webapi-azure-blob>
+
+### Enhanced upload UX toggle
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `EnhancedFileUpload` | new sites: `True`; older sites: opt-in | Toggle for the new file-upload UX (progress bar, per-file errors, delete control). **Does not affect size limits.** No `Site/` prefix — top-level key. |
+
+Reference: <https://learn.microsoft.com/power-pages/getting-started/add-form#new-file-upload-experience>
+
+### Common mismatches
+
+- **Recipe code says 10 MB but uploads fail at 5 MB** → Dataverse `Organization.MaxUploadFileSize` is at default 5 MB; raise it via Power Platform admin
+- **Studio limit set to 50 MB but uploads fail at 10 MB on SharePoint** → `SharePoint/MaxUploadSize` defaults to 10 MB; bump to 50
+- **Web API uploads fail at 1 GB despite `Site/FileManagement/MaxFileSize = 1048576`** → value is in KB, not bytes; 1 GB = `1048576` KB is correct. If you set `1048576000` you set 1 TB, which the platform clamps elsewhere.
+
 ## Profile/* — User profile
 
 | Setting | Default | Purpose |

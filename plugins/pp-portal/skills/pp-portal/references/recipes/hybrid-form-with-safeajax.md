@@ -299,4 +299,5 @@ Add a `<input type="file">`, then after the contact POST succeeds, chain a secon
 - [../data/permissions-and-roles.md](../data/permissions-and-roles.md) — Table Permission scopes, Web API access requirements
 - [../data/site-settings.md](../data/site-settings.md) — `Webapi/<entity>/enabled` and `Webapi/<entity>/fields` rules
 - [../pages/hybrid-page-idiom.md](../pages/hybrid-page-idiom.md) — the broader hybrid pattern this recipe is the write half of
+- [../quality/accessibility.md](../quality/accessibility.md#async-ui-updates--aria-live-regions) — full `aria-live` pattern guide for announcing submit success and errors to screen readers
 - [file-upload-annotations.md](file-upload-annotations.md) — chaining a file upload after a record create

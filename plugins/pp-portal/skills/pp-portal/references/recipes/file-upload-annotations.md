@@ -353,7 +353,9 @@ function loadExisting() {
 
 ### SharePoint integration auto-redirect
 
-If SharePoint document management is enabled on the parent entity AND the file is above the size threshold (configurable via `Documents/<entity>/Threshold` site setting), Dataverse auto-redirects the storage to SharePoint. The annotation itself is created as a metadata stub. **No client-side code change** — but the download URL is now SharePoint-hosted, and behavior depends on the user's SharePoint permissions, not their portal Web Role.
+If SharePoint document management is enabled on the parent entity (set up at the Dataverse level — see [Manage SharePoint documents](https://learn.microsoft.com/power-pages/configure/manage-sharepoint-documents)), Dataverse routes attachment storage to SharePoint instead of into the annotation `documentbody`. The annotation itself is created as a metadata stub. **No client-side code change** — but the download URL is now SharePoint-hosted, and behavior depends on the user's SharePoint permissions, not their portal Web Role.
+
+The Power Pages site settings that govern the SharePoint upload path are `SharePoint/MaxUploadSize` (per-file, default 10 MB, max 50 MB) and `SharePoint/MaxTotalUploadSize` (combined). There is no per-entity threshold setting; routing is controlled by whether SharePoint document management is turned on for the table.
 
 ### MIME type allowlist on the server
 
@@ -361,15 +363,20 @@ Client-side checks (Step 4 `ALLOWED_MIMES`) are UX, not security. Add a Datavers
 
 ### Max size enforcement
 
-Three layers must agree:
+Three layers must agree. **There is no Power Pages site setting named `Documents/MaxFileSize`** — that name is a long-standing misremembering (likely a mash-up of the SharePoint/Azure Blob settings below). The actual layers and their canonical setting names are:
 
-| Layer | Setting |
-|---|---|
-| Client-side (UX) | `MAX_BYTES` constant in JS |
-| Power Pages site setting | `Documents/MaxFileSize` (defaults vary; tenant-configurable) |
-| Dataverse server | Annotation `documentbody` max ~32 MB without SharePoint integration |
+| Layer | Setting | Default | Where |
+|---|---|---|---|
+| Client-side (UX) | `MAX_BYTES` constant in JS | author-set | Recipe code |
+| **Per-form upload limit (Studio)** | "Upload size limit per file (in KB)" on the form's Attachments panel | author-set | Power Pages design studio → Form → Attachments |
+| **Notes storage (annotations)** | `Organization.MaxUploadFileSize` (Dataverse, env-level — **not** a Power Pages site setting) | 5 MB | Power Platform admin center → Environment → Settings → Email → Maximum file size; max 128 MB |
+| **SharePoint integration** | `SharePoint/MaxUploadSize` site setting | 10 MB | Power Pages site setting; max 50 MB. Pair with `SharePoint/MaxTotalUploadSize` for combined cap. |
+| **Azure Blob Storage Web API** | `Site/FileManagement/MaxFileSize` site setting (in KB) | 1 GB (`1048576`) | Power Pages site setting — only when using the Azure Blob Storage upload path |
+| Enhanced upload UX toggle | `EnhancedFileUpload` site setting | new sites: on | Power Pages site setting; opt-in for older sites. Doesn't change size limits. |
 
-When any one of these rejects, the user sees a different error per layer — match all three to a consistent number.
+When any one layer rejects, the user sees a different error per layer — match all layers to a consistent number. For Notes-storage uploads (the path this recipe uses), the **Dataverse `Organization.MaxUploadFileSize`** is the binding ceiling; the per-form Studio value clamps it lower for that specific form.
+
+See [../data/site-settings.md](../data/site-settings.md#documents--file-upload-limits) for the canonical site-setting reference.
 
 ## Gotchas
 
@@ -379,7 +386,7 @@ When any one of these rejects, the user sees a different error per layer — mat
 | `objectid_<entity>` with PascalCase entity name | 400 "not a valid navigation property" | Use lowercase logical name: `objectid_contact`, not `objectid_Contact` |
 | Annotation Table Permission scope = Global | Any user can attach to any record | Use Parent scope tied to the parent entity's permission |
 | `Webapi/annotation/fields = *` | Sensitive note text exposed via GET | Whitelist only the fields you need |
-| Large file (>5 MB) hits 413 | Upload silently fails | Configure `Documents/MaxFileSize`; or enable SharePoint integration |
+| Large file (>5 MB) hits 413 | Upload silently fails | Raise Dataverse `Organization.MaxUploadFileSize` via Power Platform admin → Environment → Settings → Email; or enable SharePoint integration and use `SharePoint/MaxUploadSize`; or switch to Azure Blob Storage with `Site/FileManagement/MaxFileSize` |
 | CSP blocks `blob:` URLs | Image previews fail in CSP-enabled portals | Add `img-src 'self' blob:` to the site's `Content-Security-Policy` site setting |
 | `_objectid_value` filter shape | 400 in client-side list | Use the lookup-filter form `_objectid_value eq <guid>`, not `objectid eq <guid>` |
 | `isdocument = false` annotations show up | Notes-only entries in the file list | Filter `isdocument eq true` to get only file annotations |
@@ -388,7 +395,9 @@ When any one of these rejects, the user sees a different error per layer — mat
 ## See also
 
 - [../data/webapi-patterns.md](../data/webapi-patterns.md) — `safeAjax`, file upload pattern, polymorphic `@odata.bind`
-- [../data/site-settings.md](../data/site-settings.md) — `Webapi/annotation/enabled`, `Webapi/annotation/fields`, `Documents/MaxFileSize`
+- [../data/site-settings.md](../data/site-settings.md) — `Webapi/annotation/enabled`, `Webapi/annotation/fields`, `EnhancedFileUpload`, `SharePoint/MaxUploadSize`, `Site/FileManagement/MaxFileSize` (and the Dataverse env-level `Organization.MaxUploadFileSize` cap)
 - [../data/permissions-and-roles.md](../data/permissions-and-roles.md) — Parent-scope cascading, why annotation perms must inherit from parent
 - [../data/dataverse-naming.md](../data/dataverse-naming.md) — entity-set name vs logical name (relevant for `entitySetFor` lookups)
 - [hybrid-form-with-safeajax.md](hybrid-form-with-safeajax.md) — chaining a file upload after a record create
+
+> Verified against Microsoft Learn 2026-04-29.

@@ -2,9 +2,46 @@
 
 Common Power Pages error messages and runtime symptoms, mapped to root causes and concrete fixes. Organized by where the error appears.
 
+## Symptom index — start here
+
+A debugger landing mid-task: scan the left column, jump to the section. Symptoms covered by another reference file link out instead of staying inside this file.
+
+| What you see | Likely cause | Jump to |
+|---|---|---|
+| Page returns 200 but body is empty | Mode A divergence — base file empty, localized populated | [Page renders blank → Cause #1](#cause-1-most-common-base-file-is-empty-localized-file-has-content) |
+| Page renders for one user, blank for another | Page-level Authentication setting denies anonymous, or user lacks the required role | [Page renders blank → Cause #2](#cause-2-the-page-is-set-to-require-auth-and-the-user-is-anonymous) |
+| Page renders but JS doesn't work | Localized JS populated, base JS empty (same Mode A bug) | [Symptom: page renders but JS doesn't work](#symptom-page-renders-but-js-doesnt-work) |
+| Page renders but CSS missing | Same — base CSS empty | [Symptom: page renders but CSS missing](#symptom-page-renders-but-css-missing) |
+| Two users see different content on the same URL | Mode B divergence — base + localized both populated and drifted | [hybrid-page-idiom.md](../pages/hybrid-page-idiom.md) |
+| `404 Not Found` from `/_api/<entity>` | Site Setting `Webapi/<entity>/Enabled` missing or `false` | [404 Not Found](#404-not-found-from-_apientity) |
+| `401 Unauthorized` from `/_api/` | User anonymous on a table that requires auth, or token helper failed | [401 Unauthorized](#401-unauthorized-from-_apientity) |
+| `403 Forbidden` from `/_api/` | Anti-forgery token missing/stale, OR Table Permission denies the scope, OR field not in `Fields` whitelist | [403 Forbidden](#403-forbidden-from-_apientity) |
+| `400` "is not a valid navigation property" | Wrong `@odata.bind` navigation name; common with polymorphic (customer-type) lookups | [Invalid navigation property](#-is-not-a-valid-navigation-property) |
+| `400` "Could not find a property named" | Field name typo, display vs logical name, wrong publisher prefix | [Could not find a property](#could-not-find-a-property-named-field) |
+| `400` "Cannot bind value of type Edm.X to type Edm.Y" | Type mismatch — string sent for decimal, etc. | [Cannot bind value of type](#cannot-bind-value-of-type-edmx-to-type-edmy) |
+| Dependent dropdown shows zero options | `_value` filter form used incorrectly OR navigation property casing wrong | [data/webapi-patterns.md](../data/webapi-patterns.md) and [data/dataverse-naming.md](../data/dataverse-naming.md) |
+| Uploaded file won't open / shows zeros | `data:<mime>;base64,` prefix not stripped from `documentbody` before POST | [recipes/file-upload-annotations.md](../recipes/file-upload-annotations.md) |
+| `Liquid error: Invalid filter '<name>'` | DotLiquid doesn't have that filter — it's a Shopify-only one | [language/filters.md](../language/filters.md) |
+| Liquid behaves differently from Shopify examples on the web | DotLiquid is not Shopify Liquid; many Shopify-isms are absent | [language/dotliquid-gotchas.md](../language/dotliquid-gotchas.md) |
+| `JSON.parse: unexpected character` in client-side code | DotLiquid double-escaping inline JSON | [JSON.parse error](#jsonparse-unexpected-character-in-client-side-code) |
+| `Liquid error: undefined method 'fetchxml'` | `{% fetchxml %}` used outside a Liquid-rendering context | [undefined method fetchxml](#liquid-error-undefined-method-fetchxml) |
+| `pac paportal upload` "PowerPageComponentDeletePlugin: not found" | Local YAML for a record deleted on the server | [PowerPageComponentDeletePlugin](#pac-paportal-upload-fails-with-powerpagecomponentdeleteplugin-not-found) |
+| `pac paportal download` produces nested `site---site/site---site/` | Ran download from inside the site folder | [Nested site---site](#pac-paportal-download-produces-nested-site---sitesite---site-directory) |
+| Portal returns 503 / hangs after upload | Bulk upload jammed the cache | [Portal 503 after upload](#portal-returns-503--hangs-after-upload) |
+| Studio preview blank / errors but live portal works | Studio preview is stricter than the live portal | [Studio preview](#studio-preview-fails-for-some-pages) |
+| `{{ user.something }}` returns nil for authenticated users | Contact field not exposed to the portal context | [user.something nil](#-usersomething--returns-nil-for-authenticated-users) |
+| `{% if user.roles contains 'X' %}` always false | Role not assigned, or casing differs | [user.roles always false](#-if-userroles-contains-x---always-false) |
+| Just-assigned role not honored on page reload | Session caches role membership at sign-in — user must sign out/in | [data/permissions-and-roles.md](../data/permissions-and-roles.md) |
+| `sitemarkers['Name']` returns nil | No Sitemarker record with that name | [sitemarkers nil](#-sitemarkersname--returns-nil) |
+| Browser stuck in `/SignIn` loop | Return URL malformed, or post-signin page is itself role-restricted | [SignIn loop](#browser-shows-signin-loop-after-login) |
+| `Anti-forgery token validation failed` in console | Token stale or for a different session | [Token validation](#anti-forgery-token-validation-failed-in-browser-console) |
+| Screen reader doesn't announce AJAX result / table refresh | Missing `aria-live` region, or live region added after the change | [quality/accessibility.md](./accessibility.md) |
+
 ## Page renders blank
 
 ### Symptom: page returns 200 but the body is empty
+
+<a id="cause-1-most-common-base-file-is-empty-localized-file-has-content"></a>
 
 **Cause #1 (most common): Base file is empty, localized file has content.**
 
@@ -28,11 +65,15 @@ for d in $SITE_DIR/web-pages/*/; do
 done
 ```
 
+<a id="cause-2-the-page-is-set-to-require-auth-and-the-user-is-anonymous"></a>
+
 **Cause #2: The page is set to require auth and the user is anonymous.**
 
 A page set to "Specific Roles" with no role rule effectively shows nothing to anonymous visitors. Server returns a redirect to /SignIn that completes silently in some browsers.
 
 **Fix**: check Page Permissions in Studio. Either set Authentication to "All Users" if it should be public, or verify the role rule.
+
+<a id="symptom-page-renders-but-js-doesnt-work"></a>
 
 ### Symptom: page renders but JS doesn't work
 
@@ -40,11 +81,15 @@ A page set to "Specific Roles" with no role rule effectively shows nothing to an
 
 **Fix**: copy `content-pages/<lang>/<Page>.<lang>.webpage.custom_javascript.js` content into the base `<Page>.webpage.custom_javascript.js`. Power Pages serves base by default.
 
+<a id="symptom-page-renders-but-css-missing"></a>
+
 ### Symptom: page renders but CSS missing
 
 Same root cause as JS. Check the base `<Page>.webpage.custom_css.css` file.
 
 ## 401 / 403 / 404 from `/_api/`
+
+<a id="404-not-found-from-_apientity"></a>
 
 ### `404 Not Found` from `/_api/<entity>`
 
@@ -61,6 +106,8 @@ Same root cause as JS. Check the base `<Page>.webpage.custom_css.css` file.
 
 Sync up; restart the portal cache via Admin Center if changes don't appear immediately.
 
+<a id="401-unauthorized-from-_apientity"></a>
+
 ### `401 Unauthorized` from `/_api/<entity>`
 
 **Cause #1**: User is not authenticated. Anonymous users can't call this Web API endpoint.
@@ -70,6 +117,8 @@ Sync up; restart the portal cache via Admin Center if changes don't appear immed
 **Cause #2**: Anti-forgery token request failed (`window.shell.getTokenDeferred()` returned an error).
 
 **Fix**: Verify the token helper is loaded — Power Pages includes it on every page automatically, but custom JS in iframes or detached contexts may not see it. The token must be refreshed for each call (don't cache).
+
+<a id="403-forbidden-from-_apientity"></a>
 
 ### `403 Forbidden` from `/_api/<entity>`
 
@@ -95,6 +144,8 @@ Sync up; restart the portal cache via Admin Center if changes don't appear immed
 
 ## OData errors (400 Bad Request from `/_api/`)
 
+<a id="-is-not-a-valid-navigation-property"></a>
+
 ### `'<navigation>' is not a valid navigation property`
 
 **Cause**: Wrong navigation property name in `@odata.bind`. Common with polymorphic (customer-type) lookups.
@@ -116,6 +167,8 @@ Detect via `pp-permissions-audit` (WRN-001).
 
 Also check **case-sensitivity** — `contoso_Applicant_contact` is right; `contoso_applicant_contact` is wrong. Navigation property names are case-sensitive AND entity-specific.
 
+<a id="could-not-find-a-property-named-field"></a>
+
 ### `Could not find a property named '<field>'`
 
 **Cause**: Field name typo OR field doesn't exist on the entity.
@@ -124,6 +177,8 @@ Also check **case-sensitivity** — `contoso_Applicant_contact` is right; `conto
 - Using display name instead of logical name (`Customer Name` vs `contoso_customername`)
 - Wrong prefix (`acme_x` instead of `contoso_x`)
 - Renamed field (entity rename history may have changed it)
+
+<a id="cannot-bind-value-of-type-edmx-to-type-edmy"></a>
 
 ### `Cannot bind value of type Edm.X to type Edm.Y`
 
@@ -144,6 +199,8 @@ Also check **case-sensitivity** — `contoso_Applicant_contact` is right; `conto
 Watch for fields whose Edm type changed between environments (NQ vs GCC schema divergence).
 
 ## DotLiquid errors
+
+<a id="jsonparse-unexpected-character-in-client-side-code"></a>
 
 ### `JSON.parse: unexpected character` in client-side code
 
@@ -170,6 +227,8 @@ Detect via `pp-permissions-audit` (INFO-007).
 
 **Fix**: See [../language/filters.md](../language/filters.md) "Filters that DON'T exist" section for alternatives.
 
+<a id="liquid-error-undefined-method-fetchxml"></a>
+
 ### `Liquid error: undefined method 'fetchxml'`
 
 **Cause**: Tried to use `{% fetchxml %}` outside a Power Pages context (e.g., in a snippet that isn't being rendered as Liquid).
@@ -178,17 +237,23 @@ Detect via `pp-permissions-audit` (INFO-007).
 
 ## Sync workflow errors
 
+<a id="pac-paportal-upload-fails-with-powerpagecomponentdeleteplugin-not-found"></a>
+
 ### `pac paportal upload` fails with "PowerPageComponentDeletePlugin: not found"
 
 **Cause**: A record was deleted on the server but the local YAML still exists. Cosmetic — upload still succeeds for valid files.
 
 **Fix**: Delete the orphaned local YAML files and commit. Or run `./*-doctor.sh` to audit.
 
+<a id="pac-paportal-download-produces-nested-site---sitesite---site-directory"></a>
+
 ### `pac paportal download` produces nested `site---site/site---site/` directory
 
 **Cause**: Ran `pac paportal download` from inside the site folder.
 
 **Fix**: Always `cd $(git rev-parse --show-toplevel)` before download. The `pp-sync` skill enforces this.
+
+<a id="portal-returns-503--hangs-after-upload"></a>
 
 ### Portal returns 503 / hangs after upload
 
@@ -204,6 +269,8 @@ See [pp-sync sync workflow](../../../../../pp-sync/skills/pp-sync/references/saf
 
 ## Studio preview shows blank or errors
 
+<a id="studio-preview-fails-for-some-pages"></a>
+
 ### `Studio preview fails for some pages`
 
 **Cause**: Studio preview has stricter rendering than the live portal. Pages with complex Liquid (heavy `{% fetchxml %}`, multi-step forms, JS apps) often won't preview.
@@ -212,11 +279,15 @@ See [pp-sync sync workflow](../../../../../pp-sync/skills/pp-sync/references/saf
 
 ## Liquid object errors
 
+<a id="-usersomething--returns-nil-for-authenticated-users"></a>
+
 ### `{{ user.something }}` returns nil for authenticated users
 
 **Cause**: The Contact field isn't exposed to the portal context — Power Pages portals only expose a subset of Contact fields by default.
 
 **Fix**: Add the field to the portal's exposed fields via Power Pages Studio (Site Settings → Authentication → user fields), OR use a FetchXML query against the Contact directly (if the user's Web Role has Read on Contact).
+
+<a id="-if-userroles-contains-x---always-false"></a>
 
 ### `{% if user.roles contains 'X' %}` always false
 
@@ -233,6 +304,8 @@ See [pp-sync sync workflow](../../../../../pp-sync/skills/pp-sync/references/saf
 
 (Note: this only works if `user.roles` is a string, not an array of role names. Test in your env.)
 
+<a id="-sitemarkersname--returns-nil"></a>
+
 ### `sitemarkers['Name']` returns nil
 
 **Cause**: No Sitemarker record exists with this name.
@@ -245,11 +318,15 @@ See [pp-sync sync workflow](../../../../../pp-sync/skills/pp-sync/references/saf
 
 ## Authentication and login flow errors
 
+<a id="browser-shows-signin-loop-after-login"></a>
+
 ### `Browser shows /SignIn loop` after login
 
 **Cause**: Identity provider configured but the return URL is malformed, or the user was sent to a page they can't access.
 
 **Fix**: Check `Authentication/Registration/LoginButtonAuthenticationType` and the return URL handling. Common: a custom `/post-signin` page that redirects to a role-restricted page the user can't reach.
+
+<a id="anti-forgery-token-validation-failed-in-browser-console"></a>
 
 ### `Anti-forgery token validation failed` in browser console
 

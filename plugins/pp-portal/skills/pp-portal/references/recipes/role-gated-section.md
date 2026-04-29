@@ -257,7 +257,7 @@ The `user.parentcustomerid.id` check is "this user has a parent Account" — use
 | Gotcha | Symptom | Fix |
 |---|---|---|
 | Role name typo (case) | Button never shows | Role names are exact-match strings; verify against `adx_webrole.adx_name` |
-| Newly-assigned role not honored immediately | User logs in, role still missing | Roles are loaded into the user's session at sign-in. The user must sign out and back in (or the portal session must lapse) to pick up new role assignments |
+| Newly-assigned role not honored immediately | User logs in, role still missing | Roles are loaded into the user's session at sign-in. The user must sign out and back in (or the portal session must lapse) to pick up new role assignments. Full lifecycle in [../data/permissions-and-roles.md → Web Role assignment lifecycle](../data/permissions-and-roles.md#web-role-assignment-lifecycle) |
 | Liquid check passes but Web API call fails 403 | Button works in Studio preview; fails in production | UI checks are **not** security — your Table Permission must independently grant the action |
 | `user.roles` returns Authenticated Users only | Custom roles missing | The Contact has not been assigned the role via `adx_contact_webrole`. New Contacts default to Authenticated Users only |
 | Gating with `if user.contactid == record.ownerid` | Owner check works inconsistently | Owner-style checks belong in Table Permissions (Contact scope), not in Liquid |
@@ -278,7 +278,7 @@ The `user.parentcustomerid.id` check is "this user has a parent Account" — use
 
 ## See also
 
-- [../data/permissions-and-roles.md](../data/permissions-and-roles.md) — Web Roles, Table Permissions scopes, two-layer access model
+- [../data/permissions-and-roles.md](../data/permissions-and-roles.md) — Web Roles, Table Permissions scopes, two-layer access model, [Web Role assignment lifecycle](../data/permissions-and-roles.md#web-role-assignment-lifecycle) (the session-cache gotcha and how to test around it)
 - [../language/objects.md](../language/objects.md) — `user`, `user.roles`, `user.parentcustomerid`, `user.contactid`
 - [../language/filters.md](../language/filters.md) — `has_role` filter and other user filters
 - [../language/tags.md](../language/tags.md) — `{% if %}` / `{% elsif %}` / `{% unless %}` control flow

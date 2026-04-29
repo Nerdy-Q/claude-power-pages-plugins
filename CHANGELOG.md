@@ -2,6 +2,25 @@
 
 All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
 
+## [2.3.0] — 2026-04-29
+
+### Added (pp-portal v2.2.0)
+
+Six reference-layer gaps surfaced by the v2.2.0 recipes pass, now closed:
+
+- **`request` object deep-dive** in `language/objects.md` (+83 lines): full property inventory (`params`, `path`, `path_and_query`, `query`, `url`), 9.3.8.x default-HTML-encoding security note, `request.url` cache gotcha, querystring/POST access patterns, URL building with `url_escape` (and the `url_encode` Shopify-only correction).
+- **Pagination control patterns** in `data/fetchxml-patterns.md` (+213 lines): five subsections — full-range, windowed with ellipsis-gap guards, first/last/jump-to with HTML5 form validation, compact "Page X of Y", Bootstrap 3 vs 5 mapping table, accessibility callouts.
+- **Documents & file upload limits** in `data/site-settings.md` (+56 lines): canonical reference for the four upload paths Microsoft documents — Notes/annotation (`Organization.MaxUploadFileSize`), SharePoint (`SharePoint/MaxUploadSize`), Azure Blob Web API (`Site/FileManagement/MaxFileSize`), and the `EnhancedFileUpload` UX toggle. Replaces a previously-misnamed `Documents/MaxFileSize` reference in the file-upload recipe.
+- **Symptom index** at the top of `quality/troubleshooting.md` (+76 lines): 28-row "what you see → likely cause → jump to" table for debuggers landing mid-task. Plus 21 explicit `<a id="..."></a>` anchors on existing headings to make GFM auto-slugs deterministic across renderers. Includes 4 new symptoms not previously covered (uploaded file shows zeros, dependent dropdown empty, missing Liquid filter, role not honored after assignment).
+- **Async UI updates — aria-live regions** in `quality/accessibility.md` (+104 lines): polite vs assertive regions, the empty-then-populate pattern, `aria-atomic`, common mistakes table, Power Pages-specific patterns for safeAjax form submit / dependent dropdown / pagination async announcements.
+- **Web Role assignment lifecycle** in `data/permissions-and-roles.md` (+54 lines): the session-cache gotcha (newly-assigned roles don't propagate until sign-out/in), three pickup mechanisms (sign out + in / session expiry / Studio admin), testing-failure-mode table, server-side audit recommendation for population rollouts.
+
+### Changed (pp-portal v2.2.0)
+
+- `recipes/file-upload-annotations.md`: corrected three references to the (non-existent) `Documents/MaxFileSize` site setting; replaced auto-redirect subsection's invented `Documents/<entity>/Threshold` with the actual SharePoint document-management mechanism. Added cross-link to the new file-upload-limits section.
+- `recipes/dependent-dropdown.md`, `recipes/hybrid-form-with-safeajax.md`: cross-link to the new aria-live section.
+- `recipes/role-gated-section.md`: cross-link to the new Web Role assignment lifecycle section.
+
 ## [2.2.0] — 2026-04-29
 
 ### Added (pp-portal v2.1.0)
@@ -124,6 +143,7 @@ Static analysis of Power Pages portal permissions and Web API configuration. Std
 - Per-plugin manifests + READMEs
 - `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
 
+[2.3.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v2.2.0
 [2.1.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v2.0.0

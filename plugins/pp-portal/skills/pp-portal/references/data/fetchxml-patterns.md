@@ -301,4 +301,218 @@ These are the attributes Microsoft documents on each FetchXML element. Power Pag
 | `intersect` | `true` for an N:N intersect entity |
 | `visible` | `false` to hide the join in the result shape |
 
+## Pagination control patterns
+
+The count + paginate pattern above gives you `current_page` and `total_pages`. Rendering the controls is a separate concern, and the right shape depends on dataset size, available real estate, and accessibility expectations. Five patterns, mix as needed.
+
+All snippets assume the surrounding loop has already computed:
+
+```liquid
+{% assign current_page = request.params['page'] | default: 1 | plus: 0 %}
+{% assign total_pages  = …                                       %}   {# from count_query #}
+{% assign search       = request.params['search'] | default: '' | strip %}
+{% assign base_url     = '/customers'                            %}
+```
+
+Each example builds links with `url_escape` on user-supplied values — see [../language/objects.md](../language/objects.md#request) for why hand-concatenation is unsafe.
+
+### 1. Full-range pagination (small datasets, < 20 pages)
+
+Render every page number. Cheap, scannable, accessible by default.
+
+```liquid
+<nav aria-label="pagination">
+  <ul class="pagination">
+    {% if current_page > 1 %}
+      {% assign prev = current_page | minus: 1 %}
+      <li class="page-item">
+        <a class="page-link" href="{{ base_url }}?page={{ prev }}&search={{ search | url_escape }}" rel="prev">Previous</a>
+      </li>
+    {% else %}
+      <li class="page-item disabled"><span class="page-link">Previous</span></li>
+    {% endif %}
+
+    {% for n in (1..total_pages) %}
+      {% if n == current_page %}
+        <li class="page-item active" aria-current="page">
+          <span class="page-link">{{ n }} <span class="visually-hidden">(current)</span></span>
+        </li>
+      {% else %}
+        <li class="page-item">
+          <a class="page-link" href="{{ base_url }}?page={{ n }}&search={{ search | url_escape }}">{{ n }}</a>
+        </li>
+      {% endif %}
+    {% endfor %}
+
+    {% if current_page < total_pages %}
+      {% assign next = current_page | plus: 1 %}
+      <li class="page-item">
+        <a class="page-link" href="{{ base_url }}?page={{ next }}&search={{ search | url_escape }}" rel="next">Next</a>
+      </li>
+    {% else %}
+      <li class="page-item disabled"><span class="page-link">Next</span></li>
+    {% endif %}
+  </ul>
+</nav>
+```
+
+### 2. Windowed pagination (large datasets)
+
+Show 5-7 page numbers around the current page with ellipses for the gaps. Use this once `total_pages` exceeds about 20.
+
+```liquid
+{% assign window     = 2 %}                            {# pages on each side of current #}
+{% assign window_lo  = current_page | minus: window %}
+{% assign window_hi  = current_page | plus:  window %}
+{% if window_lo < 1 %}{% assign window_lo = 1 %}{% endif %}
+{% if window_hi > total_pages %}{% assign window_hi = total_pages %}{% endif %}
+
+<nav aria-label="pagination">
+  <ul class="pagination">
+    {# First page + leading ellipsis #}
+    {% if window_lo > 1 %}
+      <li class="page-item">
+        <a class="page-link" href="{{ base_url }}?page=1&search={{ search | url_escape }}">1</a>
+      </li>
+      {% if window_lo > 2 %}
+        <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
+      {% endif %}
+    {% endif %}
+
+    {# Window #}
+    {% for n in (window_lo..window_hi) %}
+      {% if n == current_page %}
+        <li class="page-item active" aria-current="page">
+          <span class="page-link">{{ n }} <span class="visually-hidden">(current)</span></span>
+        </li>
+      {% else %}
+        <li class="page-item">
+          <a class="page-link" href="{{ base_url }}?page={{ n }}&search={{ search | url_escape }}">{{ n }}</a>
+        </li>
+      {% endif %}
+    {% endfor %}
+
+    {# Trailing ellipsis + last page #}
+    {% if window_hi < total_pages %}
+      {% assign before_last = total_pages | minus: 1 %}
+      {% if window_hi < before_last %}
+        <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
+      {% endif %}
+      <li class="page-item">
+        <a class="page-link" href="{{ base_url }}?page={{ total_pages }}&search={{ search | url_escape }}">{{ total_pages }}</a>
+      </li>
+    {% endif %}
+  </ul>
+</nav>
+```
+
+The two `if` guards on the ellipses prevent rendering `1 … 2` (no gap) — only show the ellipsis when there's at least one page hidden.
+
+### 3. First / Last / Jump-to controls
+
+Add a jump-to-page input next to a windowed pager, for users who need to land precisely.
+
+```liquid
+<form action="{{ base_url }}" method="get" class="d-flex align-items-center gap-2">
+  <input type="hidden" name="search" value="{{ search }}" />
+  <label for="goto" class="form-label mb-0">Go to page</label>
+  <input id="goto" name="page" type="number" min="1" max="{{ total_pages }}"
+         value="{{ current_page }}" class="form-control form-control-sm" style="width: 6rem" />
+  <button class="btn btn-sm btn-outline-secondary" type="submit">Go</button>
+  <span class="text-muted">of {{ total_pages }}</span>
+</form>
+```
+
+Pair this with **First** / **Last** anchors when the dataset is in the hundreds-of-pages range:
+
+```liquid
+<a class="page-link" href="{{ base_url }}?page=1&search={{ search | url_escape }}" aria-label="First page">&laquo; First</a>
+<a class="page-link" href="{{ base_url }}?page={{ total_pages }}&search={{ search | url_escape }}" aria-label="Last page">Last &raquo;</a>
+```
+
+The form-POST nature of the jump-to control automatically clamps via the `min` / `max` HTML5 validation; the page-render code should also clamp `current_page` against `total_pages` (the canonical pattern earlier in this file already does).
+
+### 4. Compact "Page X of Y, prev/next"
+
+Minimal control for mobile or short lists. No numbered links, just direction + status.
+
+```liquid
+<nav aria-label="pagination" class="d-flex justify-content-between align-items-center">
+  {% if current_page > 1 %}
+    {% assign prev = current_page | minus: 1 %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ base_url }}?page={{ prev }}&search={{ search | url_escape }}" rel="prev">&laquo; Previous</a>
+  {% else %}
+    <span class="btn btn-sm btn-outline-secondary disabled">&laquo; Previous</span>
+  {% endif %}
+
+  <span aria-live="polite">Page {{ current_page }} of {{ total_pages }}</span>
+
+  {% if current_page < total_pages %}
+    {% assign next = current_page | plus: 1 %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ base_url }}?page={{ next }}&search={{ search | url_escape }}" rel="next">Next &raquo;</a>
+  {% else %}
+    <span class="btn btn-sm btn-outline-secondary disabled">Next &raquo;</span>
+  {% endif %}
+</nav>
+```
+
+The `aria-live="polite"` on the status span means screen readers announce "Page 3 of 12" after navigation without interrupting the user.
+
+### 5. Bootstrap-classed example (BS3 vs BS5)
+
+Classic Power Pages portals default to **Bootstrap 3**; sites migrated via `pac pages bootstrap-migrate` (see [site-settings.md](site-settings.md) `Site/BootstrapV5Enabled`) use **Bootstrap 5**. The `.pagination` wrapper class is identical; the differences are on items and accessibility helpers.
+
+| Concern | Bootstrap 3 | Bootstrap 5 |
+|---|---|---|
+| Item wrapper | `<li>` directly inside `<ul class="pagination">` | `<li class="page-item">` |
+| Link class | bare `<a>` inside `<li>` | `<a class="page-link">` |
+| Active state | `<li class="active">` | `<li class="page-item active">` + `aria-current="page"` |
+| Disabled state | `<li class="disabled">` | `<li class="page-item disabled">` |
+| Hidden text | `<span class="sr-only">` | `<span class="visually-hidden">` |
+
+Bootstrap 3 example for the canonical "previous, numbered window, next" shape (acme_customer dataset):
+
+```liquid
+<nav aria-label="pagination">
+  <ul class="pagination">
+    {% if current_page > 1 %}
+      {% assign prev = current_page | minus: 1 %}
+      <li><a href="{{ base_url }}?page={{ prev }}&search={{ search | url_escape }}" rel="prev">&laquo;</a></li>
+    {% else %}
+      <li class="disabled"><span>&laquo;</span></li>
+    {% endif %}
+
+    {% for n in (window_lo..window_hi) %}
+      {% if n == current_page %}
+        <li class="active"><span>{{ n }} <span class="sr-only">(current)</span></span></li>
+      {% else %}
+        <li><a href="{{ base_url }}?page={{ n }}&search={{ search | url_escape }}">{{ n }}</a></li>
+      {% endif %}
+    {% endfor %}
+
+    {% if current_page < total_pages %}
+      {% assign next = current_page | plus: 1 %}
+      <li><a href="{{ base_url }}?page={{ next }}&search={{ search | url_escape }}" rel="next">&raquo;</a></li>
+    {% else %}
+      <li class="disabled"><span>&raquo;</span></li>
+    {% endif %}
+  </ul>
+</nav>
+```
+
+The Bootstrap 5 versions of patterns 1, 2, and 4 above already use the v5 conventions (`page-item`, `page-link`, `visually-hidden`, `aria-current`).
+
+### Accessibility callouts
+
+Every snippet above ships with the four checks pagination needs to clear WCAG 2.1 AA:
+
+- **Landmark** — `<nav aria-label="pagination">` so the pager appears in the page's regions list and assistive tech can jump straight to it
+- **Current page** — `aria-current="page"` on the active item, NOT just visual styling — color-blind and screen-reader users need the semantic
+- **Status announcement** — "Page X of Y" rendered as accessible text, not only as visual decoration; pair with `aria-live="polite"` on the compact form so updates announce without interrupting
+- **Hidden helper text** — `(current)` inside `<span class="visually-hidden">` (or `sr-only` on BS3) inside the active link so the screen reader output is "Page 3, current" rather than just "Page 3"
+
+Disabled previous/next controls render as `<span>` not `<a>` — a disabled link is still tab-focusable and announces as a link, both of which are confusing. The span avoids that footgun.
+
+For the full WCAG-AA pattern set including focus management, color contrast, and keyboard navigation, see [../quality/accessibility.md](../quality/accessibility.md).
+
 > Verified against Microsoft Learn 2026-04-29.

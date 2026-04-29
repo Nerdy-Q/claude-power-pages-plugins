@@ -75,26 +75,109 @@ Shortcut for `request.params`. Identical hash; reads better in template prose.
 
 ### request
 
-The HTTP request context.
+The HTTP request context. Five properties; one Dictionary; a security default and a caching gotcha that you need to know about together.
 
-| Property | Meaning |
-|---|---|
-| `request.url` | Full request URL |
-| `request.path` | Path portion (e.g., `/customers/`) |
-| `request.path_and_query` | Path + querystring |
-| `request.query` | Querystring portion only |
-| `request.params` | Hash-like access to all querystring + form values |
+| Property | Type | Meaning |
+|---|---|---|
+| `request.url` | string | Full absolute request URL — scheme, host, path, querystring |
+| `request.path` | string | Path portion only (e.g., `/customers/`) |
+| `request.path_and_query` | string | Path + querystring (e.g., `/customers/?q=acme&page=2`) |
+| `request.query` | string | Querystring portion only (e.g., `?q=acme&page=2`) |
+| `request.params` | Dictionary | Combined hash of all querystring values and form-POST values, keyed by name |
 
 ```liquid
-{% assign search       = request.params['search']  | default: '' | strip %}
-{% assign current_page = request.params['page']    | default: 1 | plus: 0 %}
-
-<a href="/SignIn?returnurl={{ request.path_and_query | url_encode }}">Sign in</a>
+{{ request.url }}              https://contoso.powerappsportals.com/customers/?q=acme&page=2
+{{ request.path }}             /customers/
+{{ request.path_and_query }}   /customers/?q=acme&page=2
+{{ request.query }}            ?q=acme&page=2
+{{ request.params['q'] }}      acme
 ```
 
-**Security gotcha (since 9.3.8.x):** `request` outputs are **HTML-encoded by default**. This is on purpose — it stops trivial reflected-XSS via querystring values dumped into markup. The Site Setting `Site/EnableDefaultHtmlEncoding` controls the behavior; leave it on. If you genuinely need the raw value (rare), apply an explicit filter and own the consequences.
+#### HTML-encoding default (since 9.3.8.x)
 
-**Caching gotcha:** `request.url` is **cached** for subsequent requests in some scenarios. If you need cache-busting per-request URL behavior, wrap the consumer in a `{% substitution %}` tag or work with partial URL fragments.
+`request` outputs are **HTML-encoded by default** since portal release 9.3.8.x. The Site Setting `Site/EnableDefaultHtmlEncoding` controls it (default `True`). With encoding on, a querystring value like `?q=<script>alert(1)</script>` rendered via `{{ request.params['q'] }}` emits the harmless string `&lt;script&gt;alert(1)&lt;/script&gt;` — not executable HTML.
+
+This is on purpose. It stops trivial reflected-XSS via querystring values dumped into markup, and it covers the most common code-shape — `<p>You searched for: {{ request.params['q'] }}</p>` — without forcing every author to remember `| escape`.
+
+The same setting controls auto-encoding on `user` outputs. Leave it on. If you genuinely need a raw value (e.g., piping through to a JSON island where you'll JSON-encode it differently), assign through an explicit filter pipeline and own the consequences:
+
+```liquid
+{# Explicit JSON-encoding for a JS island, bypassing the HTML-encode default safely #}
+<script>
+  var query = {{ request.params['q'] | json }};
+</script>
+```
+
+The `| json` filter properly escapes for a JS-string context — never use raw concatenation into `<script>` blocks.
+
+#### Caching gotcha — `request.url` and substitution
+
+`request.url` is **cached** for subsequent requests in some output-caching scenarios (header/footer output cache, page-level cache fragments). The cached URL may be from the first request that populated the cache, not the current request. Two consequences:
+
+1. Don't rely on `request.url` inside cached templates for per-request behavior (active-link highlighting, canonical tags, sign-in returnurl building) — wrap the consumer in `{% substitution %}…{% endsubstitution %}` so it re-renders per request
+2. For self-relative links, prefer **partial URLs** over full ones — `~{WebFile path}` resolves at render time and survives caching, e.g. `<a href="{{ '~/customers' }}">`
+
+```liquid
+{# Wrong inside cached header/footer — captures first-request URL, reused for everyone #}
+<link rel="canonical" href="{{ request.url }}" />
+
+{# Right — substitution forces per-request render #}
+{% substitution %}<link rel="canonical" href="{{ request.url }}" />{% endsubstitution %}
+```
+
+#### Reading querystring values safely
+
+`request.params` is a **Dictionary** — values come back as strings (or `null` if the key is absent). There is no auto-coercion to `int` or `bool`. The safe pattern uses `default` for the missing case and `strip` for whitespace:
+
+```liquid
+{% assign s = request.params['q']    | default: '' | strip %}
+{% assign p = request.params['page'] | default: 1  | plus: 0 %}
+{% assign show_archived = request.params['archived'] %}
+{% if show_archived == 'true' %} … {% endif %}
+```
+
+For typed access, use type filters from [filters.md](filters.md):
+
+| Need | Filter |
+|---|---|
+| Number from string | `\| plus: 0` (or `\| integer` where supported) |
+| Bool from `true`/`false` string | `== 'true'` comparison |
+| Trim whitespace | `\| strip` |
+| Default if missing | `\| default: <value>` |
+
+#### Reading form-POST values
+
+The same `request.params` Dictionary surfaces **form-POST values** under the same accessor — there's no separate `request.form` or `request.body`. A form posted via `<form method="post">` with `<input name="comment">` reads as `{{ request.params['comment'] }}` on the rendering page. The HTML-encoding default applies to form-POST values too — same security guarantee, same opt-out path.
+
+#### Building URLs with querystrings
+
+**Anti-pattern** — hand-concatenated URLs without escaping:
+
+```liquid
+{# BAD — breaks if q contains & or = or # #}
+<a href="/search?q={{ q }}&page={{ page }}">…</a>
+```
+
+**Pattern** — pipe through `url_escape` for each value:
+
+```liquid
+{% assign url = '/search?q=' | append: (q | url_escape) | append: '&page=' | append: page %}
+<a href="{{ url }}">Search</a>
+```
+
+`url_escape` is the Power Pages-canonical filter for percent-encoding URL components. **`url_encode` is Shopify-only and does not exist in DotLiquid / Power Pages** — see [filters.md](filters.md) for the full filter inventory and migration map. (Note: a few older internal templates still use `url_encode`; treat any sighting as a bug to fix when you touch the file.)
+
+For the sign-in return-URL pattern:
+
+```liquid
+<a href="/SignIn?returnurl={{ request.path_and_query | url_escape }}">Sign in</a>
+```
+
+#### See also
+
+- [filters.md](filters.md) — `url_escape`, `default`, `strip`, type filters, `json`
+- [tags.md](tags.md) — `{% substitution %}` for cache-bust regions
+- [../recipes/](../recipes/) — search-and-pagination recipes that read `request.params` end-to-end
 
 ### settings
 
@@ -562,7 +645,7 @@ Returned by self-referencing relationships.
 
 ```liquid
 {# Login redirect with return URL #}
-<a href="/SignIn?returnurl={{ request.path_and_query | url_encode }}">Sign in</a>
+<a href="/SignIn?returnurl={{ request.path_and_query | url_escape }}">Sign in</a>
 
 {# Active nav class #}
 <a class="nav-link {% if request.path == link.url %}active{% endif %}" href="{{ link.url }}">{{ link.name }}</a>
