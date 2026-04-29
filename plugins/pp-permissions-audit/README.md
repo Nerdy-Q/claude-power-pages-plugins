@@ -13,8 +13,10 @@ A **knowledge + analytical skill**. The skill ships a stdlib-only Python script 
 | ERR-001 | ERROR | Web API enabled but no Table Permission grants Read |
 | ERR-002 | ERROR | Orphaned Table Permission (no Web Roles assigned) |
 | ERR-003 | ERROR | Anonymous Users role granted Write/Create/Delete on a sensitive table |
+| ERR-004 | ERROR | `Webapi/<entity>/Fields` explicitly whitelists secured readable field(s) |
 | WRN-001 | WARN | Custom JS uses `<lookup>@odata.bind` without `_contact` / `_account` suffix on a polymorphic field — runtime 400 risk |
 | WRN-002 | WARN | Web Role exists but no Table Permission references it |
+| WRN-009 | WARN | `Webapi/<entity>/Fields = *` is used on an entity with secured readable fields |
 | INFO-001 | INFO | Table Permission allows Read but Web API isn't enabled (would 404) |
 | INFO-002 | INFO | `Webapi/<entity>/Fields = *` exposes all fields (consider narrowing) |
 | INFO-003 | INFO | Page requires auth but no role rule (any authenticated user can see) |
@@ -45,6 +47,7 @@ The skill knows where the cached `audit.py` lives and will invoke it automatical
 Smoke-tested against multiple real Power Pages portals (commercial + USGov, single-environment + dual-environment dev/client, single-portal + multi-division). Representative findings from those runs:
 
 - **ERR-001** (Web API enabled with no Table Permission) — common when site settings get added eagerly during dev but the matching permission never gets configured. Typical run: 5–20 findings per portal.
+- **ERR-004 / WRN-009** (secured readable fields exposed through an explicit whitelist or wildcard) — catches field-level security exposure risk when `dataverse-schema/` is present and the entity metadata marks fields as both secured and API-readable.
 - **INFO-002** (`Webapi/<entity>/Fields = *` wildcards) — common when permissions are set up via Studio defaults. Often 100+ findings on portals with many entities.
 - **WRN-001** (polymorphic lookup without `_contact` / `_account` suffix) — pre-empts a 400 Bad Request at runtime. Caught a real bug on a customer-type lookup that would have shipped to a production form.
 - **WRN-004** (custom JS calling `/_api/` without anti-forgery token) — pre-empts a 403. Caught files where the safeAjax pattern was missing.

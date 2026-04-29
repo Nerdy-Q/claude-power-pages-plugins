@@ -73,6 +73,7 @@ claude plugin validate .                                        # marketplace
 ```bash
 claude plugin marketplace add /path/to/claude-power-pages-plugins
 claude plugin install pp-portal@nq-claude-power-pages-plugins
+```
 
 ## Near-term hardening
 
@@ -81,7 +82,6 @@ The audit now has regression tests. The next test surface worth adding is `pp-sy
 - project-config generation fixtures (`pp setup`, `pp project add`)
 - changed-file counting and bulk-upload warnings
 - repo-local vs plugin-cache audit fallback behavior
-```
 
 ## Conventions
 
