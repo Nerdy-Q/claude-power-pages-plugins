@@ -158,6 +158,11 @@ jobs:
           bash plugins/pp-sync/tests/test_journal_url_validation.sh
           echo "OK    pp journal URL validation tests pass"
 
+      - name: Run pp subcommand safety tests
+        run: |
+          bash plugins/pp-sync/tests/test_subcommand_safety.sh
+          echo "OK    pp subcommand safety tests pass"
+
       - name: Bash syntax check
         run: |
           fail=0

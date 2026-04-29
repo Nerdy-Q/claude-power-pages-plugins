@@ -195,6 +195,54 @@ run_test "empty-default-values" "ok" '
     exit 0
 '
 
+run_resolve_project_test() {
+    local test_name="$1" input="$2" expected_status="$3" assertions="${4:-true}"
+    local conf_dir
+    conf_dir="$(mktemp -d)"
+    TMPDIRS+=( "$conf_dir" )
+    mkdir -p "$conf_dir/projects"
+    printf 'NAME="alpha"\nREPO="/tmp"\nSITE_DIR="site"\nPROFILE="prof"\n' > "$conf_dir/projects/alpha.conf"
+    printf 'NAME="beta"\nREPO="/tmp"\nSITE_DIR="site"\nPROFILE="prof"\n' > "$conf_dir/projects/beta.conf"
+
+    local output exit_code
+    output=$(
+        (
+            export PP_CONFIG_DIR="$conf_dir"
+            export PP_PROJECTS_DIR="$conf_dir/projects"
+            export PP_ALIASES_FILE="$conf_dir/aliases"
+            : > "$PP_ALIASES_FILE"
+            # shellcheck source=/dev/null
+            . "$PP_BIN" >/dev/null 2>&1 || true
+            result="$(resolve_project "$input")"
+            status=$?
+            [ "$status" -eq "$expected_status" ] || { echo "status=$status result=$result"; exit 1; }
+            eval "$assertions"
+        ) 2>&1
+    )
+    exit_code=$?
+    rm -rf "$conf_dir"
+
+    if [ "$exit_code" -eq 0 ]; then
+        PASS=$((PASS + 1))
+        printf '  OK   %s\n' "$test_name"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=( "$test_name" )
+        printf '  FAIL %s\n' "$test_name" >&2
+        printf '       output: %s\n' "$output" >&2
+    fi
+}
+
+run_resolve_project_test "resolve-project-literal-dotstar" ".*" "1" '
+    [ -z "${result:-}" ] || { echo "unexpected result=$result"; exit 1; }
+    exit 0
+'
+
+run_resolve_project_test "resolve-project-literal-bracket" "[" "1" '
+    [ -z "${result:-}" ] || { echo "unexpected result=$result"; exit 1; }
+    exit 0
+'
+
 # --- Summary ---------------------------------------------------------------
 
 echo

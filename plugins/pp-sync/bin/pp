@@ -138,6 +138,35 @@ list_projects() {
         | sed 's|.*/||; s|\.conf$||' | sort
 }
 
+first_alias_target_for() {
+    local input="$1" line alias target
+    [ -f "$PP_ALIASES_FILE" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] || continue
+        case "$line" in
+            \#*) continue ;;
+        esac
+        alias="${line%%=*}"
+        target="${line#*=}"
+        [ "$alias" = "$line" ] && continue
+        if [ "$alias" = "$input" ]; then
+            printf '%s\n' "$target"
+            return 0
+        fi
+    done < "$PP_ALIASES_FILE"
+    return 1
+}
+
+list_projects_with_prefix() {
+    local prefix="$1" project
+    while IFS= read -r project; do
+        [ -n "$project" ] || continue
+        case "$project" in
+            "$prefix"*) printf '%s\n' "$project" ;;
+        esac
+    done < <(list_projects)
+}
+
 # Resolve a user-supplied name to a real project name.
 # Honors:  exact match > alias > unique prefix > active
 resolve_project() {
@@ -157,22 +186,16 @@ resolve_project() {
     fi
 
     # Alias lookup — file format: "alias=target" one per line
-    if [ -f "$PP_ALIASES_FILE" ]; then
-        local target
-        # `|| true` on the pipeline: under bash strict mode (`set -euo
-        # pipefail`), grep with no match exits 1, pipefail propagates,
-        # and the assignment would abort the function before the
-        # prefix-match fallback below could run.
-        target=$(grep -E "^${input}=" "$PP_ALIASES_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true)
-        if [ -n "$target" ] && [ -f "$PP_PROJECTS_DIR/$target.conf" ]; then
-            echo "$target"
-            return 0
-        fi
+    local target
+    target=$(first_alias_target_for "$input" || true)
+    if [ -n "$target" ] && [ -f "$PP_PROJECTS_DIR/$target.conf" ]; then
+        echo "$target"
+        return 0
     fi
 
     # Unique prefix
     local matches
-    matches=$(list_projects | grep "^${input}" || true)
+    matches=$(list_projects_with_prefix "$input")
     local count
     count=$(printf '%s\n' "$matches" | grep -c . || true)
     if [ "$count" = "1" ]; then
@@ -320,10 +343,15 @@ cd_repo_root() {
     local repo="$1"
     [ -d "$repo" ] || die "Project repo not found: $repo"
     cd "$repo" || die "Cannot cd to $repo"
-    # If this is a git repo, snap to its top
+    # If this is a git repo, snap to its top. Otherwise stay where we
+    # are — repos managed by pp don't strictly require git (e.g. doctor
+    # against a fresh checkout, or a tarball-shipped portal source).
     local top
     top=$(git rev-parse --show-toplevel 2>/dev/null || true)
-    [ -n "$top" ] && cd "$top" || return
+    if [ -n "$top" ]; then
+        cd "$top" || die "Cannot cd to git top: $top"
+    fi
+    return 0
 }
 
 confirm_pac_profile() {

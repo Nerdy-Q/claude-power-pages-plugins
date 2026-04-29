@@ -2,6 +2,32 @@
 
 All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
 
+## [2.7.4] — 2026-04-29
+
+Test-coverage release: codified the v2.7.2 + v2.7.3 fixes as regression tests so they cannot quietly regress, and surfaced one additional bug while writing the tests.
+
+### Tests added
+
+- **New suite `tests/test_subcommand_safety.sh`** — 23 cases across 4 sections covering pp subcommand code paths the existing suites didn't exercise:
+  - Section 1 (10 cases): `cmd_generate_page` page-name validation. Path traversal (`../../etc/foo`, `..foo`, `foo..`), slash/backslash injection, semicolon/quote/`$()`/backtick injection. Includes a trap-file sentinel that fails the suite if any injection actually executed during the run.
+  - Section 2 (7 cases): `cmd_journal note|close` URL extraction. Exercises the v2.7.3 fix that filters to `^Issue: ` lines instead of grabbing any URL — including the regression case that locked users out (Issue: line + inline cross-repo URL in a user note).
+  - Section 3 (5 cases): `cmd_solution_down|up` pick range. Out-of-range high (99, 1000), zero, plus 2 valid picks. Asserts the friendly "Pick must be between" error rather than bash's `unbound variable` crash.
+  - Section 4 (1 case): `cmd_doctor` pipefail tolerance outside a git tree.
+- **2 cases added to `test_load_project.sh`** — exercise `resolve_project` against literal regex-metacharacter inputs (`.*` and `[`) to lock in the pure-bash alias lookup behavior.
+- **2 cases added to `test_audit.py`** — coverage for the new `iter_localized_page_files` and `inline_page_script_sources` helpers.
+- **CI wired** — new "Run pp subcommand safety tests" step in `.github/workflows/plugin-validate.yml`.
+
+Test count: **60 total** (was 41) across 4 bash suites + 1 Python suite. All pass on local + ubuntu-latest.
+
+### Fixed (pp-sync v2.0.3)
+
+- **`cd_repo_root` no longer silently aborts callers under bash strict mode** when `$REPO` exists but is not a git tree. The previous `[ -n "$top" ] && cd "$top" || return` pattern returned 1 (the false test result) when there was no git toplevel, which then aborted any caller running under `set -e`. The function now stays in the just-`cd`'d repo dir if there's no git toplevel and explicitly `return 0`s. Surfaced by the new `cmd_doctor` regression test — `pp doctor` against a fresh non-git portal source previously printed only its first line and silently aborted.
+
+### Refactored
+
+- **`bin/pp` alias lookup is now pure bash.** `resolve_project` previously used a `grep | head | cut` pipeline guarded with `|| true` (the v2.7.2 fix for the strict-mode abort). The pipeline still tolerated regex metacharacters in the input only by accident — `grep -E "^${input}="` would have interpreted user input as a regex pattern. The new `first_alias_target_for` helper reads the alias file line-by-line, splits on `=`, and compares as literal strings. Same fix applied to prefix matching via `list_projects_with_prefix`. No behavior change for valid inputs; safer behavior for inputs containing `.`, `*`, `[`, etc.
+- **`audit.py` factored out two helpers** — `iter_localized_page_files` (now uses `rglob` to handle nested `<lang>/` subdirectories under `content-pages/`, which the previous flat `iterdir` missed) and `inline_page_script_sources` (extracts `<script>...</script>` blocks from page HTML, so WRN-004 anti-forgery-token checks now cover inline scripts in addition to standalone `*.js` files). Both helpers tested.
+
 ## [2.7.3] — 2026-04-29
 
 Third independent review pass. Each prior pass found 5+ real bugs; this pass surfaced 7 more across untested code paths. None are CVE-class — the architectural conf-source sink stayed closed — but each is a real bug that would bite users in normal operation.
@@ -331,6 +357,7 @@ Static analysis of Power Pages portal permissions and Web API configuration. Std
 - Per-plugin manifests + READMEs
 - `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
 
+[2.7.4]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.4
 [2.7.3]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.3
 [2.7.2]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.2
 [2.7.1]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.1
