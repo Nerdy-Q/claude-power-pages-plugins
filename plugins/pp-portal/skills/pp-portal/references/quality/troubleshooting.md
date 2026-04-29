@@ -200,7 +200,7 @@ Detect via `pp-permissions-audit` (INFO-007).
 3. Verify with browser
 4. Future uploads: do incrementally (1-3 files at a time, verify between)
 
-See [pp-sync sync workflow](../../../../pp-sync/skills/pp-sync/references/safety-checks.md) for full recovery procedure.
+See [pp-sync sync workflow](../../../../../pp-sync/skills/pp-sync/references/safety-checks.md) for full recovery procedure.
 
 ## Studio preview shows blank or errors
 
