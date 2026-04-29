@@ -125,6 +125,53 @@ run_test "missing-name" "die" "true"
 # 8. Control character (CR) inside a value → die
 run_test "control-char-cr" "die" "true"
 
+# 9. CRITICAL: backtick command substitution must NOT execute
+run_test "backtick-injection" "ok" '
+    case "$REPO" in
+        *touch*) exit 0 ;;
+        *) echo "REPO not literal: $REPO"; exit 1 ;;
+    esac
+'
+
+# 10. Mixed valid and junk content — valid keys load, junk is skipped,
+#     unknown keys (PATH, RANDOM_KEY) do NOT leak into shell variables.
+run_test "mixed-valid-and-junk" "ok" '
+    [ "$NAME" = "mixed" ] || { echo "NAME=$NAME"; exit 1; }
+    [ "$REPO" = "/tmp/repo" ] || { echo "REPO=$REPO"; exit 1; }
+    [ "$SITE_DIR" = "site---site" ] || { echo "SITE_DIR=$SITE_DIR"; exit 1; }
+    [ "$PROFILE" = "myprofile" ] || { echo "PROFILE=$PROFILE"; exit 1; }
+    # SOLUTIONS should still parse despite the junk lines above it
+    [ "${SOLUTIONS[*]}" = "Real Other" ] || { echo "SOLUTIONS=${SOLUTIONS[*]}"; exit 1; }
+    exit 0
+'
+
+# 11. CRITICAL: PATH/LD_PRELOAD/HOME poisoning. The conf attempts to
+#     set process-critical environment variables. The parser MUST NOT
+#     touch them — only allowlisted keys are assigned.
+run_test "path-poisoning" "ok" '
+    case "$PATH" in
+        */tmp/evil*) echo "PATH POISONED: $PATH"; exit 1 ;;
+    esac
+    case "${LD_PRELOAD:-}" in
+        */tmp/evil*) echo "LD_PRELOAD POISONED: $LD_PRELOAD"; exit 1 ;;
+    esac
+    case "$HOME" in
+        */tmp/evil-home*) echo "HOME POISONED: $HOME"; exit 1 ;;
+    esac
+    # Sanity: legitimate keys still loaded
+    [ "$NAME" = "path-poison" ] || { echo "NAME=$NAME"; exit 1; }
+    exit 0
+'
+
+# 12. Legitimate values with spaces (paths, URLs, comma-separated tags)
+run_test "legitimate-spaces" "ok" '
+    [ "$REPO" = "/Users/me/My Projects/Acme Corp" ] || { echo "REPO=$REPO"; exit 1; }
+    [ "$SITE_DIR" = "acme portal/acme---acme" ] || { echo "SITE_DIR=$SITE_DIR"; exit 1; }
+    [ "$ENV_URL" = "https://acme-dev.crm.dynamics.com/" ] || { echo "ENV_URL=$ENV_URL"; exit 1; }
+    [ "$TAGS" = "portal, client, commercial" ] || { echo "TAGS=$TAGS"; exit 1; }
+    exit 0
+'
+
 # --- Summary ---------------------------------------------------------------
 
 echo
