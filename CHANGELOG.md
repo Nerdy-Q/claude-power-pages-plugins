@@ -2,6 +2,28 @@
 
 All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
 
+## [2.7.2] — 2026-04-29
+
+Follow-up patch surfacing five real bugs found by an independent post-release review. None are CVE-class — the v2.7.0 architectural fix is intact — but each is a real bug worth closing.
+
+### Fixed (pp-sync v2.0.1)
+
+- **`KEY=""` in conf no longer overrides defaults** for `MODEL_VERSION`, `SCHEMA_DIR`, `BOARD_SYSTEM`, and `AI_ATTR`. The strict parser introduced in v2.0.0 treated "key omitted" and `KEY=""` identically — both produced an empty string — which then flowed into `pac paportal upload --modelVersion ""` with confusing failures. `load_project` now re-applies defaults after parsing for keys-with-defaults.
+- **`pp journal note|close` validates the issue URL BEFORE writing** to JOURNAL.md. Previously the note/close marker was appended first, then the URL was validated; if validation aborted, a stale note remained committed to the journal. The write order is now: validate URL → write to JOURNAL.md → call `gh`. No file mutation if validation fails.
+- **`pp journal open` validates the URL `gh issue create` returns** before persisting it to JOURNAL.md. Defense-in-depth — closes a corner case where a misconfigured `gh` default-repo could seed a cross-repo URL into the journal that subsequent `note|close` calls would then keep rejecting.
+- **`resolve_project` no longer aborts under bash strict mode when the alias file has no matching entry**. The pipeline `target=$(grep | head | cut)` now ends with `|| true` so a no-match grep doesn't trip `set -euo pipefail` before the prefix-match fallback can run.
+- **`format_solutions_array` no longer uses `xargs` for whitespace trim**. `xargs` with no command does shell-style word-splitting and quote-stripping, which mangled multi-word inputs and produced confusing error messages. Replaced with pure parameter-expansion trim.
+
+### Tests
+
+- New `tests/fixtures/empty-default-values.conf` regression test for the `MODEL_VERSION=""` defaulting bug. Asserts that all four keys-with-defaults still resolve to their default values when the conf sets them to empty strings. Test count now 35 (was 34).
+
+### Documentation
+
+- **`plugins/pp-sync/skills/pp-sync/references/journaling.md`** "Safety & Attribution" section now documents the same-repo URL enforcement (the security-relevant feature shipped in v2.7.0 that this doc had been silent about).
+- **`plugins/pp-sync/skills/pp-sync/references/cli-reference.md`** example conf no longer uses `$HOME` (which the v2.0.0 parser stores as a literal string). Replaced with `~/...` shorthand, which the loader DOES expand.
+- **`plugins/pp-permissions-audit/skills/pp-permissions-audit/SKILL.md`** "Highlights" table dedup'd — the Content Snippet check (WRN-010) was listed twice with different wording.
+
 ## [2.7.1] — 2026-04-29
 
 Documentation patch — the supporting docs for v2.7.0's automation and behavior changes. No code changes.
@@ -288,6 +310,7 @@ Static analysis of Power Pages portal permissions and Web API configuration. Std
 - Per-plugin manifests + READMEs
 - `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
 
+[2.7.2]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.2
 [2.7.1]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.1
 [2.7.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.7.0
 [2.6.1]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.6.1

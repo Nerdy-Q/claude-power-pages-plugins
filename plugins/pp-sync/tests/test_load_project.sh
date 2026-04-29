@@ -172,6 +172,17 @@ run_test "legitimate-spaces" "ok" '
     exit 0
 '
 
+# 13. Empty-string values for keys-with-defaults must re-default, not blank
+#     (regression for v2.7.2: parser treats `KEY=""` and "key omitted"
+#     identically, so the post-parse re-default pass must run).
+run_test "empty-default-values" "ok" '
+    [ "$MODEL_VERSION" = "2" ] || { echo "MODEL_VERSION=$MODEL_VERSION (expected 2)"; exit 1; }
+    [ "$SCHEMA_DIR" = "dataverse-schema" ] || { echo "SCHEMA_DIR=$SCHEMA_DIR"; exit 1; }
+    [ "$BOARD_SYSTEM" = "auto" ] || { echo "BOARD_SYSTEM=$BOARD_SYSTEM"; exit 1; }
+    [ "$AI_ATTR" = "yes" ] || { echo "AI_ATTR=$AI_ATTR"; exit 1; }
+    exit 0
+'
+
 # --- Summary ---------------------------------------------------------------
 
 echo
