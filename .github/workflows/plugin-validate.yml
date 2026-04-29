@@ -153,6 +153,11 @@ jobs:
           bash plugins/pp-sync/tests/test_register_atomic.sh
           echo "OK    pp project add atomic-registration tests pass"
 
+      - name: Run pp journal URL validation tests
+        run: |
+          bash plugins/pp-sync/tests/test_journal_url_validation.sh
+          echo "OK    pp journal URL validation tests pass"
+
       - name: Bash syntax check
         run: |
           fail=0

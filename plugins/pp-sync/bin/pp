@@ -63,6 +63,44 @@ validate_identifier() {
     fi
 }
 
+# Validate that an issue URL points to the *current* git repository.
+# Closes the journal-URL hijacking path: JOURNAL.md is committed and
+# shared via PR, so an attacker who lands a PR appending a URL like
+# https://github.com/other-org/private-repo/issues/42 could cause the
+# next `pp journal note|close` to post (or close) an arbitrary issue
+# the maintainer has push access to.
+#
+# Strategy: enforce a strict URL shape (no unexpected path segments) AND
+# require a host+path-prefix match against `gh repo view` / `glab repo
+# view`. If the current-repo URL cannot be determined, refuse the action.
+#
+# Same-repo issue confusion (an attacker swapping issue NUMBER within the
+# same repo) is not addressed here — that requires a side-channel state
+# file tracking which issue `pp journal open` actually created. Tracked
+# as a follow-up in audit umbrella #1.
+validate_issue_url_for_current_repo() {
+    local url="$1"
+    if [[ ! "$url" =~ ^https://(github|gitlab)\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(/-)?/issues/[0-9]+$ ]]; then
+        die "Refusing to operate on issue URL with unexpected shape: $url"
+    fi
+    local current_repo=""
+    case "$url" in
+        https://github.com/*)
+            command -v gh >/dev/null 2>&1 || die "gh required to validate GitHub issue URL"
+            current_repo=$(gh repo view --json url -q .url 2>/dev/null || true)
+            ;;
+        https://gitlab.com/*)
+            command -v glab >/dev/null 2>&1 || die "glab required to validate GitLab issue URL"
+            current_repo=$(glab repo view 2>/dev/null | grep -oE 'https://gitlab\.com/[A-Za-z0-9_./-]+' | head -1 || true)
+            ;;
+    esac
+    [ -n "$current_repo" ] || die "Cannot determine current repo to validate issue URL: $url"
+    case "$url" in
+        "$current_repo"/issues/*|"$current_repo"/-/issues/*) return 0 ;;
+    esac
+    die "Refusing: issue URL is outside current repo. URL=$url current=$current_repo"
+}
+
 # Validate a comma-separated list of solution names and emit the matching
 # `SOLUTIONS=("a" "b")` line on stdout. Dies on any invalid entry BEFORE
 # any output is produced — callers can capture the result and write it to
@@ -1331,14 +1369,18 @@ EOF
             info "Adding note..."
             echo "- **Note$attr**: $msg" >> "$REPO/JOURNAL.md"
             
-            # Post comment to issue if possible (heuristic: find last issue URL in JOURNAL.md)
+            # Post comment to issue if possible (heuristic: find last issue
+            # URL in JOURNAL.md, validated against current repo).
             local last_issue
-            last_issue=$(grep -o 'https://[^ ]*' "$REPO/JOURNAL.md" | tail -1)
+            last_issue=$(grep -oE 'https://(github|gitlab)\.com/[^ )]+' "$REPO/JOURNAL.md" | tail -1 || true)
             if [ -n "$last_issue" ]; then
+                validate_issue_url_for_current_repo "$last_issue"
                 if [[ "$last_issue" == *"github.com"* ]] && [ "$has_gh" = "1" ]; then
-                    gh issue comment "$last_issue" --body "$msg$attr" >/dev/null 2>&1
+                    gh issue comment "$last_issue" --body "$msg$attr" >/dev/null 2>&1 \
+                        || warn "Failed to post comment to $last_issue"
                 elif [[ "$last_issue" == *"gitlab.com"* ]] && [ "$has_glab" = "1" ]; then
-                    glab issue note "$last_issue" --message "$msg$attr" >/dev/null 2>&1
+                    glab issue note "$last_issue" --message "$msg$attr" >/dev/null 2>&1 \
+                        || warn "Failed to post note to $last_issue"
                 fi
             fi
             ;;
@@ -1347,16 +1389,21 @@ EOF
             local summary="${1:-}"
             info "Closing task..."
             echo "- **CLOSED**: $summary" >> "$REPO/JOURNAL.md"
-            
+
             local last_issue
-            last_issue=$(grep -o 'https://[^ ]*' "$REPO/JOURNAL.md" | tail -1)
+            last_issue=$(grep -oE 'https://(github|gitlab)\.com/[^ )]+' "$REPO/JOURNAL.md" | tail -1 || true)
             if [ -n "$last_issue" ]; then
+                validate_issue_url_for_current_repo "$last_issue"
                 if [[ "$last_issue" == *"github.com"* ]] && [ "$has_gh" = "1" ]; then
-                    gh issue comment "$last_issue" --body "Task closed: $summary" >/dev/null 2>&1
-                    gh issue close "$last_issue" >/dev/null 2>&1
+                    gh issue comment "$last_issue" --body "Task closed: $summary" >/dev/null 2>&1 \
+                        || warn "Failed to post close comment to $last_issue"
+                    gh issue close "$last_issue" >/dev/null 2>&1 \
+                        || warn "Failed to close $last_issue"
                 elif [[ "$last_issue" == *"gitlab.com"* ]] && [ "$has_glab" = "1" ]; then
-                    glab issue note "$last_issue" --message "Task closed: $summary" >/dev/null 2>&1
-                    glab issue close "$last_issue" >/dev/null 2>&1
+                    glab issue note "$last_issue" --message "Task closed: $summary" >/dev/null 2>&1 \
+                        || warn "Failed to post close note to $last_issue"
+                    glab issue close "$last_issue" >/dev/null 2>&1 \
+                        || warn "Failed to close $last_issue"
                 fi
                 ok "Closed issue $last_issue"
             fi
