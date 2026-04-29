@@ -1,7 +1,7 @@
 # nq-claude-plugins
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Power Pages](https://img.shields.io/badge/Power%20Pages-classic-purple.svg)](https://learn.microsoft.com/en-us/power-pages/)
+[![Power Pages](https://img.shields.io/badge/Power%20Pages-hybrid%20Liquid%20%2B%20Web%20API-purple.svg)](https://learn.microsoft.com/en-us/power-pages/)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin%20marketplace-orange.svg)](https://docs.claude.com/en/docs/claude-code/plugins)
 
 Open-source Claude Code plugins from [NerdyQ](https://github.com/Nerdy-Q) for **Microsoft Power Pages classic portals**: hybrid Liquid + Web API patterns, safe `pac paportal` sync workflows, and static-analysis security audit.

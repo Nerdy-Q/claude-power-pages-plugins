@@ -62,6 +62,30 @@ else
     echo "${YLW}⚠${RST} pp installed but failed to run. Check: $BIN_TARGET help"
 fi
 
+# 6. Optional: install shell completions
+COMPLETION_DIR="$PLUGIN_DIR/completion"
+if [ -d "$COMPLETION_DIR" ]; then
+    # bash: prefer ~/.bash_completion.d/, fall back to per-user $XDG_DATA_HOME path
+    if [ -d "$HOME/.bash_completion.d" ]; then
+        cp "$COMPLETION_DIR/pp.bash" "$HOME/.bash_completion.d/pp" 2>/dev/null \
+            && echo "${GRN}✓${RST} bash completion: $HOME/.bash_completion.d/pp"
+    else
+        echo "${YLW}⚠${RST} bash completion available at: $COMPLETION_DIR/pp.bash"
+        echo "    To enable, add to ~/.bashrc:  source $COMPLETION_DIR/pp.bash"
+    fi
+
+    # zsh: install into ~/.zsh/completions/ if user has it
+    if [ -d "$HOME/.zsh/completions" ]; then
+        cp "$COMPLETION_DIR/_pp" "$HOME/.zsh/completions/_pp" 2>/dev/null \
+            && echo "${GRN}✓${RST} zsh completion: $HOME/.zsh/completions/_pp"
+        echo "    Run:  autoload -Uz compinit && compinit"
+    else
+        echo "${YLW}⚠${RST} zsh completion available at: $COMPLETION_DIR/_pp"
+        echo "    To enable: mkdir -p ~/.zsh/completions && cp $COMPLETION_DIR/_pp ~/.zsh/completions/"
+        echo "    Then add to ~/.zshrc:  fpath=(~/.zsh/completions \$fpath); autoload -Uz compinit && compinit"
+    fi
+fi
+
 echo
 echo "${BOLD}Next:${RST}"
 echo "  pp setup           # auto-detect Power Pages projects on this machine"

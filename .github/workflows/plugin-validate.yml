@@ -1,0 +1,190 @@
+# Plugin marketplace validation
+#
+# Runs on every PR and on pushes to main. Catches:
+#   - Broken plugin manifests (missing required fields, version conflicts)
+#   - Marketplace.json drift from on-disk plugins
+#   - audit.py syntax errors
+#   - Shell script syntax errors (pp CLI + templates + install scripts)
+#   - Any leak of client-specific identifiers (anchor360, petrofund, etc.)
+#
+# Security note: this workflow uses NO github.event.* inputs in any run: block.
+# All command inputs come from checked-out repo content via filesystem, not
+# from PR titles / commit messages / etc.
+
+name: Validate plugin marketplace
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate plugin manifests
+        run: |
+          python3 <<'PY_EOF'
+          import json
+          import sys
+          from pathlib import Path
+
+          REQUIRED_FIELDS = {"name", "description", "version", "author", "license"}
+          plugin_jsons = list(Path("plugins").glob("*/.claude-plugin/plugin.json"))
+
+          if not plugin_jsons:
+              print("ERROR: no plugin.json files found", file=sys.stderr)
+              sys.exit(1)
+
+          all_ok = True
+          plugin_names = set()
+          for path in plugin_jsons:
+              with path.open() as f:
+                  try:
+                      data = json.load(f)
+                  except json.JSONDecodeError as e:
+                      print(f"FAIL  {path}: {e}", file=sys.stderr)
+                      all_ok = False
+                      continue
+              missing = REQUIRED_FIELDS - data.keys()
+              if missing:
+                  print(f"FAIL  {path}: missing fields {missing}", file=sys.stderr)
+                  all_ok = False
+                  continue
+              if not isinstance(data["version"], str):
+                  print(f"FAIL  {path}: version must be a string", file=sys.stderr)
+                  all_ok = False
+                  continue
+              folder = path.parent.parent.name
+              if data["name"] != folder:
+                  print(f"FAIL  {path}: name '{data['name']}' != folder '{folder}'", file=sys.stderr)
+                  all_ok = False
+                  continue
+              plugin_names.add(data["name"])
+              print(f"OK    {path}: {data['name']} v{data['version']}")
+
+          marketplace_path = Path(".claude-plugin/marketplace.json")
+          if not marketplace_path.exists():
+              print(f"FAIL  {marketplace_path}: missing", file=sys.stderr)
+              sys.exit(1)
+          with marketplace_path.open() as f:
+              marketplace = json.load(f)
+          marketplace_plugins = {p["name"] for p in marketplace.get("plugins", [])}
+          missing_in_marketplace = plugin_names - marketplace_plugins
+          extra_in_marketplace = marketplace_plugins - plugin_names
+          if missing_in_marketplace:
+              print(f"FAIL  marketplace.json missing plugins: {missing_in_marketplace}", file=sys.stderr)
+              all_ok = False
+          if extra_in_marketplace:
+              print(f"FAIL  marketplace.json references unknown plugins: {extra_in_marketplace}", file=sys.stderr)
+              all_ok = False
+          if not extra_in_marketplace and not missing_in_marketplace:
+              print(f"OK    marketplace.json references all {len(plugin_names)} on-disk plugins")
+
+          sys.exit(0 if all_ok else 1)
+          PY_EOF
+
+      - name: Validate SKILL.md frontmatter
+        run: |
+          python3 <<'PY_EOF'
+          import re
+          import sys
+          from pathlib import Path
+
+          all_ok = True
+          for skill_md in Path("plugins").glob("*/skills/*/SKILL.md"):
+              text = skill_md.read_text()
+              m = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
+              if not m:
+                  print(f"FAIL  {skill_md}: missing frontmatter block", file=sys.stderr)
+                  all_ok = False
+                  continue
+              fm = m.group(1)
+              has_name = re.search(r"^name:\s*\S+", fm, re.MULTILINE)
+              has_desc = re.search(r"^description:\s*\S+", fm, re.MULTILINE)
+              if not (has_name and has_desc):
+                  print(f"FAIL  {skill_md}: frontmatter missing name and/or description", file=sys.stderr)
+                  all_ok = False
+                  continue
+              skill_folder = skill_md.parent.name
+              name_match = re.search(r"^name:\s*(\S+)", fm, re.MULTILINE)
+              if name_match.group(1) != skill_folder:
+                  print(f"FAIL  {skill_md}: frontmatter name '{name_match.group(1)}' != folder '{skill_folder}'", file=sys.stderr)
+                  all_ok = False
+                  continue
+              print(f"OK    {skill_md}")
+          sys.exit(0 if all_ok else 1)
+          PY_EOF
+
+      - name: Compile audit.py
+        run: |
+          python3 -c "import py_compile; py_compile.compile('plugins/pp-permissions-audit/skills/pp-permissions-audit/scripts/audit.py', doraise=True)"
+          echo "OK    audit.py compiles"
+
+      - name: Bash syntax check
+        run: |
+          fail=0
+          while IFS= read -r script; do
+              if bash -n "$script" 2>/dev/null; then
+                  echo "OK    $script"
+              else
+                  echo "FAIL  $script" >&2
+                  bash -n "$script" || true
+                  fail=1
+              fi
+          done < <(find plugins -name '*.sh' -o -name 'pp' -o -name 'install.sh')
+          exit $fail
+
+      - name: Check internal markdown links
+        run: |
+          python3 <<'PY_EOF'
+          import re
+          import sys
+          from pathlib import Path
+
+          link_re = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+          all_ok = True
+          for md in Path("plugins").glob("**/*.md"):
+              text = md.read_text()
+              for match in link_re.finditer(text):
+                  target = match.group(1).split("#")[0]
+                  if not target or target.startswith(("http://", "https://", "mailto:")):
+                      continue
+                  resolved = (md.parent / target).resolve()
+                  if not resolved.exists():
+                      print(f"FAIL  {md}: broken link to {target}", file=sys.stderr)
+                      all_ok = False
+          if all_ok:
+              print("OK    all internal markdown links resolve")
+          sys.exit(0 if all_ok else 1)
+          PY_EOF
+
+      - name: Check for client-specific identifiers
+        run: |
+          patterns='Anchor360|anchor360|Anchor Dock|Petrofund|petrofund-|petrofund_|enf_[a-z]|access-modernization|accessmod-development|biadmin|Jeremy\.Quittschreiber|jeremy\.quittschreiber@nerdyq|@anchor-dock|@state\.mn\.us|5d242a9e-676e|6747769d-2b05|c7a91a20-40e8|/Users/jquittschreiber|anchor360-dev\.crm|petrofund-development\.crm|commpetrofunddev|NerdyQ-Dev|COMM-Energy-Dev|COMM_PP_'
+          leaks=$(git ls-files '*.md' '*.py' '*.sh' '*.json' '*.yml' 'pp' \
+                  | xargs grep -lE "$patterns" 2>/dev/null || true)
+          if [ -z "$leaks" ]; then
+              echo "OK    no client-specific identifiers in tracked files"
+              exit 0
+          else
+              echo "FAIL  client identifiers found:" >&2
+              echo "$leaks" >&2
+              for f in $leaks; do
+                  echo "--- $f ---"
+                  grep -nE "$patterns" "$f" | head -5
+              done
+              exit 1
+          fi

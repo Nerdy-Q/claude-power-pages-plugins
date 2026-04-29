@@ -1,0 +1,107 @@
+# Changelog
+
+All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
+
+## [2.1.0] — 2026-04-29
+
+### Added
+- **GitHub Action for marketplace validation** (`.github/workflows/plugin-validate.yml`): plugin manifest structural checks, SKILL.md frontmatter validation, audit.py compile check, bash syntax check, internal markdown link integrity, and client-identifier leak guard. Runs on every PR and push to main.
+- **Bash and zsh completion for `pp` CLI** (`plugins/pp-sync/completion/`): subcommand completion + dynamic project-name completion from `~/.config/nq-pp-sync/projects/`. Installer (`pp-sync/install.sh`) auto-installs them when `~/.bash_completion.d/` or `~/.zsh/completions/` is present.
+- **CHANGELOG.md** at repo root (this file).
+- Backfilled GitHub Release pages for v1.1.0 and v1.2.0 tags.
+
+### Changed
+- README badge updated from "classic" to "hybrid" to reflect the v2.0.0 scope reframing.
+
+## [2.0.0] — 2026-04-29
+
+### Breaking
+- **Plugin renamed**: `pp-liquid` → `pp-portal`. Reinstall path: `claude plugin uninstall pp-liquid@nq-claude-plugins && claude plugin install pp-portal@nq-claude-plugins`.
+- **References reorganized** into 5 category subdirectories: `language/`, `data/`, `pages/`, `workflow/`, `quality/`. Internal links updated automatically; any external bookmarks need updating to `references/<category>/<file>.md`.
+
+### Added
+- **Three new reference files** in pp-portal:
+  - `language/types.md` — 7 documented Liquid types, truthiness rules, type coercion patterns
+  - `data/site-settings.md` — comprehensive site setting catalog (Webapi/*, Authentication/*, Search/*, HTTP/*, Site/*, Profile/*) with case-sensitivity rule and CSP deep dive
+  - `workflow/microsoft-plugins.md` — companion-plugin guidance, when to defer to Microsoft's `dataverse`, `power-pages`, `canvas-apps`, `model-apps` plugins
+- **Two new reference files from the styling pass**:
+  - `pages/styling-and-design.md` — CSS architecture, theme system, page templates vs web templates, Bootstrap 3 vs 5 implications
+  - `pages/bundled-libraries.md` — jQuery 3.6.2, jQuery UI 1.13.2, Bootstrap version inventory
+- **Accessibility reference**: `quality/accessibility.md` — WCAG 2.2 conformance, Section 508, EN 301 549. No built-in checker — use Accessibility Insights externally.
+- **`language/operators.md`** — operator inventory + truthiness rules with surprising-cases warning.
+- **Casing as 4th critical gotcha** in SKILL.md — Logical / Schema / Display / Entity Set Name + Navigation Property four-name model.
+
+### Changed (corrections from MS Learn verification)
+- **Date format strings**: corrected from strftime (`%Y`, `%m`, `%-d`) to .NET format strings (`'yyyy'`, `'MMMM dd, yyyy'`). Every date example in 4+ files updated.
+- **Filters reference**: removed 17+ filters that don't exist in Power Pages (`strip`, `lstrip`, `rstrip`, `slice`, `sort`, `sort_natural`, `uniq`, `compact`, `reverse`, `map`, `where_exp`, `escape_once`, `url_encode`, `abs`, `to_string`, `current_culture`, `display_name`, `metafield`, `json`). Added missing canonical filters (`batch`, `except`, `group_by`, `order_by`/`then_by`, `random`, `shuffle`, `select`, `skip`, `take`, all `date_add_*`, `html_safe_escape`, `xml_escape`, `text_to_html`, all URL filters).
+- **Tags**: added missing canonical tags (`{% entityview %}` — required for entitylist row rendering, `{% searchindex %}`, `{% powerbi %}`, `{% codecomponent %}`, `{% substitution %}`, `{% comment %}`, `{% raw %}`, plus all control-flow/iteration/variable tags). Fixed entitylist attributes (id|name|key + language_code only — page/sort/search are on entityview). Fixed include syntax (comma-separated `key:value`, not Shopify's `with`). Fixed editable defaults (`liquid:true` is default, not opt-in).
+- **Web API**: added the canonical Microsoft jQuery `safeAjax` with `validateLoginSession` alongside the modernized fetch version. Added `PUT` single-property update and `$ref` associate/disassociate operations. Removed unsupported "OData v4 headers required" claim.
+- **Site settings case**: corrected from PascalCase to lowercase per MS convention (`Webapi/<entity>/enabled` not `/Enabled`). Renamed `Webapi/error/innererror/enabled` to `Webapi/error/innererror`. Renamed `Webapi/<entity>/disablefilter` to `Webapi/<entity>/disableodatafilter`. Added the 50+ unsupported `adx_*` config-tables list.
+- **FetchXML**: softened "`mapping=logical` required" (technically optional per MS). Added FetchXML attribute reference per MS. Added the self-closing `<attribute/>` ban gotcha.
+- **Companion-plugin posture**: SKILL.md now explicitly defers to Microsoft's plugins for Dataverse-side work (`dv-connect`, `dv-query`, `dv-metadata`, `dv-solution`, `dv-admin`, `dv-security`), code sites, canvas apps, model-driven apps.
+
+### Repo housekeeping
+- README updated with category breakdown for pp-portal
+- CONTRIBUTING.md updated with new subdirectory paths
+- marketplace.json: pp-portal entry with new description and tags including `hybrid` and `classic-portal`
+- Plugin folder rename via `git mv` preserves history
+
+## [1.2.0] — 2026-04-29
+
+### Added (pp-permissions-audit)
+- **3 schema-aware audit checks** (only run when `dataverse-schema/` is in the repo):
+  - **WRN-006**: `$select=<field>` references a field that doesn't exist on the entity per Entity.xml
+  - **WRN-007**: FetchXML attribute does not exist on its entity per Entity.xml
+  - **WRN-008**: `Webapi/<entity>/Fields` whitelist lists nonexistent fields
+- Smart skip-list for Microsoft built-in entities (`contact`, `account`, etc.) prevents false positives from partial schema exports.
+- Enhanced schema loader captures EntitySetName, lookup `_value` forms, and navigation property names.
+- **GitHub Action template** at `examples/github-actions/power-pages-audit.yml` — drop-in workflow that triggers on PRs touching portal source, auto-detects the site folder, gates the PR on ERROR-class findings, uploads the full report as build artifact.
+- **CI integration doc** (`CI.md`): GitHub Actions, Azure DevOps, generic shell, pre-commit hooks, and JSON output for custom dashboards.
+
+### Fixed (pp-permissions-audit)
+- Fixed an orphaned-code bug where the schema loader was never invoked (lived after a `return` statement in `parse_yaml_text`). Schema-aware checks now actually run.
+
+## [1.1.0] — 2026-04-29
+
+### Added (pp-portal)
+- **`references/dataverse-naming.md`** — covers the 4-name model (Logical / Schema / Display / Entity Set Name), navigation-property casing rules, where each name applies, common-error decoding.
+- Promoted Dataverse casing to the 4th critical gotcha in SKILL.md.
+
+### Added (pp-sync)
+- **`pp sync-pages <project>`** subcommand — copies one half of the base/localized pair to the other in bulk for all paired files. Idempotent.
+
+### Added (pp-permissions-audit)
+- **WRN-005**: `<prefix_name>@odata.bind` is all lowercase — likely a Logical Name where Navigation Property was needed. Excludes Microsoft built-ins and polymorphic suffixes.
+- **INFO-009**: Page has diverged base/localized files. Both populated but differ by >10% in size — inconsistent-content failure mode (mode B; mode A — empty base — remains INFO-005).
+
+### Changed (pp-portal)
+- Sharpened the base-vs-localized gotcha in SKILL.md to highlight the maintenance angle: two failure modes (empty base / diverged pair).
+- Expanded `hybrid-page-idiom.md` with maintenance patterns and divergence-detection guidance.
+
+## [1.0.0] — 2026-04-28
+
+### Initial public release
+
+Three plugins in the `nq-claude-plugins` marketplace at v1.0.0 each, sanitized and verified leak-free.
+
+#### pp-liquid (v1.0.0)
+Knowledge skill for Power Pages classic Liquid templating. 8 reference files covering FetchXML count+paginate+filter, Web API in custom JS with the safeAjax / `__RequestVerificationToken` pattern, entity tags (entitylist, entityform, webform), DotLiquid quirks vs Shopify Liquid, hybrid render-then-mutate pages, and a troubleshooting matrix mapping common errors to causes and fixes.
+
+#### pp-sync (v1.0.0)
+Action skill plus `pp` CLI for safe portal sync workflows. Backed by a per-project config registry at `~/.config/nq-pp-sync/projects/` with alias and prefix-match resolution. Subcommands: setup, list, show, switch, status, down, up, doctor, solution-down, solution-up, audit. Cross-plugin audit dispatch. CI-friendly `--severity` / `--exit-code`. Ships 6 standalone wrapper templates as drop-ins for projects that don't want to register globally.
+
+#### pp-permissions-audit (v1.0.0)
+Static analysis of Power Pages portal permissions and Web API configuration. Stdlib-only Python script (no `pip install`) runs 13 checks against site source. Catches blank-page bugs (base vs localized file divergence), missing anti-forgery tokens, polymorphic lookup mistakes, orphaned permissions, sitemarker drift, unsafe DotLiquid JSON escapes, and Web API misalignment patterns.
+
+### Repo bootstrap
+- LICENSE (MIT)
+- CONTRIBUTING.md
+- Top-level marketplace manifest at `.claude-plugin/marketplace.json`
+- Per-plugin manifests + READMEs
+- `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
+
+[2.1.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v2.1.0
+[2.0.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v2.0.0
+[1.2.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v1.2.0
+[1.1.0]: https://github.com/Nerdy-Q/claude-plugins/releases/tag/v1.1.0
+[1.0.0]: https://github.com/Nerdy-Q/claude-plugins/commit/a96c400

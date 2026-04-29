@@ -1,0 +1,126 @@
+#compdef pp
+# Zsh completion for the `pp` CLI (NerdyQ pp-sync plugin)
+#
+# Install:
+#   mkdir -p ~/.zsh/completions
+#   cp _pp ~/.zsh/completions/_pp
+#
+# Add to ~/.zshrc if not already present:
+#   fpath=(~/.zsh/completions $fpath)
+#   autoload -Uz compinit && compinit
+#
+# After install, restart zsh or run: autoload -Uz compinit && compinit
+
+_pp() {
+    local config_dir="${PP_CONFIG_DIR:-$HOME/.config/nq-pp-sync}"
+
+    _pp_projects() {
+        local -a projects
+        if [[ -d "$config_dir/projects" ]]; then
+            projects=( ${${(f)"$(find "$config_dir/projects" -maxdepth 1 -name '*.conf' 2>/dev/null)"}:t:r} )
+        fi
+        local -a aliases_list
+        if [[ -f "$config_dir/aliases" ]]; then
+            aliases_list=( ${(f)"$(cut -d= -f1 "$config_dir/aliases" 2>/dev/null)"} )
+        fi
+        _describe -t projects 'project' projects
+        _describe -t aliases 'alias' aliases_list
+    }
+
+    local -a subcommands
+    subcommands=(
+        'setup:Interactive bootstrap (auto-detect projects + PAC profiles)'
+        'list:List all registered projects'
+        'ls:List all registered projects'
+        'show:Show details for a project'
+        'switch:Set as the active project (also pac auth select)'
+        'use:Set as the active project (alias for switch)'
+        'status:Show currently active project + live env'
+        'down:Download portal from Dataverse'
+        'd:Download portal (alias for down)'
+        'up:Upload local changes to Dataverse'
+        'u:Upload local changes (alias for up)'
+        'doctor:Health check (auth, tooling, structure)'
+        'commit:Interactive selective commit'
+        'solution-down:Export Dataverse solution + unpack'
+        'sol-down:Export solution (alias)'
+        'solution-up:Pack + import Dataverse solution (DESTRUCTIVE)'
+        'sol-up:Import solution (alias)'
+        'sync-pages:Copy base ↔ localized files in bulk'
+        'audit:Run permissions audit (delegates to pp-permissions-audit)'
+        'project:Manage project registry (add/edit/remove/list)'
+        'alias:Manage shorthand aliases (add/list)'
+        'help:Show help'
+    )
+
+    if (( CURRENT == 2 )); then
+        _describe -t commands 'pp subcommand' subcommands
+        return
+    fi
+
+    case "${words[2]}" in
+        down|d|up|u|doctor|switch|use|show|sync-pages|audit|solution-down|sol-down|solution-up|sol-up)
+            if (( CURRENT == 3 )); then
+                _pp_projects
+                return
+            fi
+            case "${words[2]}" in
+                down|d)
+                    _values 'option' '--no-clean'
+                    ;;
+                up|u)
+                    _values 'option' '--validate-only' '--force-bulk' '--bulk-threshold='
+                    ;;
+                sync-pages)
+                    _values 'direction' 'base-to-localized' 'localized-to-base'
+                    ;;
+                audit)
+                    if [[ "${words[CURRENT-1]}" == "--severity" ]]; then
+                        _values 'severity' 'ERROR' 'WARN' 'INFO'
+                    else
+                        _values 'option' '--severity' '--exit-code' '--json' '-o' '--output'
+                    fi
+                    ;;
+            esac
+            ;;
+        project)
+            if (( CURRENT == 3 )); then
+                local -a project_subs
+                project_subs=(
+                    'add:Register a new project'
+                    'edit:Open project config in $EDITOR'
+                    'remove:Delete a project and its aliases'
+                    'rm:Delete a project (alias for remove)'
+                    'list:List all projects'
+                    'ls:List all projects (alias)'
+                )
+                _describe -t commands 'project subcommand' project_subs
+                return
+            fi
+            case "${words[3]}" in
+                edit|remove|rm)
+                    if (( CURRENT == 4 )); then
+                        _pp_projects
+                    fi
+                    ;;
+            esac
+            ;;
+        alias)
+            if (( CURRENT == 3 )); then
+                local -a alias_subs
+                alias_subs=(
+                    'add:Add a shorthand alias'
+                    'list:List all aliases'
+                    'ls:List all aliases (alias)'
+                )
+                _describe -t commands 'alias subcommand' alias_subs
+                return
+            fi
+            if [[ "${words[3]}" == "add" && CURRENT == 5 ]]; then
+                _pp_projects
+            fi
+            ;;
+    esac
+}
+
+_pp "$@"
