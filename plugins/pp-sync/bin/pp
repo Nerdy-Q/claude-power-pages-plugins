@@ -130,8 +130,12 @@ load_project() {
     REPO="${REPO/#~/$HOME}"
 
     # Session safety for journaling only. Do not block non-interactive pp flows.
+    local board_verify_key=""
+    if [ -n "$BOARD_URL" ]; then
+        board_verify_key="${NAME}|${BOARD_SYSTEM}|${BOARD_URL}|${AI_ATTR}"
+    fi
     if [ -n "$BOARD_URL" ] && [ "${PP_REQUIRE_BOARD_CONFIRM:-0}" = "1" ] \
-       && [ "$PP_SESSION_VERIFIED:-0" = "0" ] && [ -t 0 ] && [ -t 1 ]; then
+       && [ "${PP_SESSION_VERIFIED_BOARD:-}" != "$board_verify_key" ] && [ -t 0 ] && [ -t 1 ]; then
         echo
         warn "Journaling is active for project: ${BOLD}$NAME${RST}"
         echo "  Target Board: $BOARD_URL"
@@ -140,10 +144,10 @@ load_project() {
         echo
         local ans
         read -r -p "Continue with this board mapping? [Y/n]: " ans
-        if [ "${ans,,}" = "n" ]; then
+        if [ "$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')" = "n" ]; then
             die "Aborted. Check $conf to correct mapping."
         fi
-        export PP_SESSION_VERIFIED=1
+        export PP_SESSION_VERIFIED_BOARD="$board_verify_key"
     fi
 }
 
@@ -185,7 +189,7 @@ confirm_action() {
     local prompt="$1"
     local ans
     read -r -p "$prompt [y/N] " ans
-    [ "${ans,,}" = "y" ] || { info "Aborted."; exit 0; }
+    [ "$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')" = "y" ] || { info "Aborted."; exit 0; }
 }
 
 # ===========================================================================
@@ -307,7 +311,7 @@ cmd_setup() {
         info "--- Journaling & Project Boards ---"
         read -r -p "Enable automated journaling for this project? [Y/n]: " auto_journal
         auto_journal="${auto_journal:-y}"
-        if [ "${auto_journal,,}" = "y" ]; then
+        if [ "$(printf '%s' "$auto_journal" | tr '[:upper:]' '[:lower:]')" = "y" ]; then
             read -r -p "Project board system (github/gitlab/none) [auto]: " board_system
             board_system="${board_system:-auto}"
             read -r -p "Project board URL/ID (blank to skip): " board_url
@@ -1166,6 +1170,16 @@ cmd_journal() {
     command -v gh >/dev/null 2>&1 && has_gh=1
     command -v glab >/dev/null 2>&1 && has_glab=1
 
+    local board_mode="${BOARD_SYSTEM:-auto}"
+    if [ "$board_mode" = "auto" ]; then
+        case "${BOARD_URL:-}" in
+            *github.com*|github:*) board_mode="github" ;;
+            *gitlab.com*|gitlab:*) board_mode="gitlab" ;;
+            "") board_mode="none" ;;
+            *) board_mode="none" ;;
+        esac
+    fi
+
     case "$action" in
         init)
             info "Initializing journal for $name"
@@ -1189,9 +1203,9 @@ EOF
             info "Opening task: $title"
             
             local issue_url=""
-            if [ "${BOARD_SYSTEM:-}" = "github" ] && [ "$has_gh" = "1" ]; then
+            if [ "$board_mode" = "github" ] && [ "$has_gh" = "1" ]; then
                 issue_url=$(gh issue create --title "$title" --body "Task initiated via pp-sync journal." --label "automated-journal" 2>/dev/null)
-            elif [ "${BOARD_SYSTEM:-}" = "gitlab" ] && [ "$has_glab" = "1" ]; then
+            elif [ "$board_mode" = "gitlab" ] && [ "$has_glab" = "1" ]; then
                 issue_url=$(glab issue create --title "$title" --description "Task initiated via pp-sync journal." 2>/dev/null | grep -o 'https://[^ ]*')
             fi
             

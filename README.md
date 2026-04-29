@@ -14,7 +14,7 @@ If you build classic Power Pages sites — particularly the hybrid native patter
 |---|---|
 | [`pp-portal`](plugins/pp-portal/) | Microsoft Power Pages classic portals — hybrid Liquid + Web API pattern. Categorized references: language (operators / tags / filters / objects / DotLiquid gotchas), data (Web API / FetchXML / Dataverse naming / permissions), pages (hybrid idiom / styling / bundled libraries), workflow (sync), quality (accessibility / troubleshooting) |
 | [`pp-sync`](plugins/pp-sync/) | Action skill + `pp` CLI for running portal sync workflows safely — `pac paportal` + project registry + alias resolution + bulk-upload safety guards + 6 ready-to-drop wrapper templates |
-| [`pp-permissions-audit`](plugins/pp-permissions-audit/) | Static-analysis audit of a portal's Web Roles, Table Permissions, Site Settings, Web API config, AND (when `dataverse-schema/` is present) FetchXML + `$select=` field references — 25 checks including base-vs-localized blank-page detection, polymorphic lookup pre-emption, missing anti-forgery tokens, schema-aware field validation, secured-field exposure detection, missing snippet references, FetchXML performance guardrails, and divergent base/localized pair detection. Drop-in [GitHub Action template](plugins/pp-permissions-audit/CI.md) for PR gating. |
+| [`pp-permissions-audit`](plugins/pp-permissions-audit/) | Static-analysis audit of a portal's Web Roles, Table Permissions, Site Settings, Web API config, AND (when `dataverse-schema/` is present) FetchXML + `$select=` field references — 24 checks including base-vs-localized blank-page detection, polymorphic lookup pre-emption, missing anti-forgery tokens, schema-aware field validation, secured-field exposure detection, missing snippet references, FetchXML performance guardrails, and divergent base/localized pair detection. Drop-in [GitHub Action template](plugins/pp-permissions-audit/CI.md) for PR gating. |
 
 ## Install
 
@@ -31,6 +31,14 @@ After installing `pp-sync`, run its installer once to put the `pp` CLI on your P
 ~/.claude/plugins/cache/nq-claude-power-pages-plugins/pp-sync/<version>/install.sh
 pp setup    # interactive bootstrap — auto-detects PAC profiles + site folders
 ```
+
+## Platform support
+
+- `pp-portal`: platform-agnostic reference content
+- `pp-permissions-audit`: Python-based and generally cross-platform
+- `pp-sync`: currently macOS/Linux/WSL-first because the CLI, installer, and wrappers are Bash-based
+
+Native Windows support for `pp-sync` is planned as a separate release path rather than implied compatibility through Git Bash or PowerShell.
 
 ## Marketplace structure
 

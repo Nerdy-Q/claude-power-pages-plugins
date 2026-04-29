@@ -7,6 +7,12 @@ A Claude Code action skill for running **Power Pages classic portal sync workflo
 
 Plus the skill (this directory's `skills/pp-sync/`) which guides Claude through pre-flight safety checks when assisting with sync operations interactively.
 
+## Platform support
+
+`pp-sync` is currently designed for macOS, Linux, and WSL. The `pp` CLI, installer, completions, and wrapper templates are Bash-based and assume standard Unix utilities plus a POSIX-style filesystem layout.
+
+Native Windows support is planned as a separate release path, likely via dedicated PowerShell tooling rather than treating Git Bash behavior as the compatibility contract.
+
 ## What this is
 
 A **rigid action skill** — has a checklist of steps that must run in order. Detects which Power Pages project is active by scanning for known wrapper-script patterns (project-prefix, env-suffix, or verb-only), confirms the operation with the user, runs pre-flight safety checks, delegates to existing wrapper scripts when present, and falls back to bare `pac` commands when not.

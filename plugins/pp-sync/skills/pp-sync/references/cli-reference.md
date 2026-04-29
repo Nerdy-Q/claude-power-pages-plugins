@@ -17,6 +17,12 @@ This symlinks `bin/pp` to `~/.local/bin/pp` and creates `~/.config/nq-pp-sync/`.
 
 After install, run `pp setup` for the interactive bootstrap.
 
+## Platform support
+
+`pp` currently targets macOS, Linux, and WSL. It assumes Bash plus common Unix tools (`find`, `sed`, `awk`, `grep`, `mktemp`, `realpath`, `cp`) and installs into `~/.local/bin/`.
+
+Native Windows support is planned as a separate release path. Until that exists, WSL is the recommended way to use `pp-sync` on Windows machines.
+
 ## Commands
 
 ### Project registry

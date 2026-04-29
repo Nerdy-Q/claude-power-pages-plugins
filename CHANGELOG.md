@@ -2,6 +2,19 @@
 
 All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
 
+## [2.6.1] — 2026-04-29
+
+### Changed (pp-sync v1.6.1)
+
+- Fixed a macOS Bash 3.2 compatibility bug in the new journaling/session-prompt flow by removing `${var,,}` usage in favor of portable lowercase handling.
+- Improved `pp journal` board-system resolution so `BOARD_SYSTEM="auto"` correctly infers GitHub vs GitLab from the configured board URL.
+- Tightened board confirmation scoping so verification is tracked per distinct board mapping in a shell session instead of once globally.
+- Added explicit platform-boundary docs: `pp-sync` is currently macOS/Linux/WSL-first, with native Windows support planned as a separate release path.
+
+### Changed
+
+- Updated release-managed docs and templates to point at `v2.6.1`.
+
 ## [2.6.0] — 2026-04-29
 
 ### Added (pp-sync v1.6.0)
@@ -203,6 +216,7 @@ Static analysis of Power Pages portal permissions and Web API configuration. Std
 - Per-plugin manifests + READMEs
 - `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
 
+[2.6.1]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.6.1
 [2.6.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.6.0
 [2.5.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.5.0
 [2.3.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.3.0
