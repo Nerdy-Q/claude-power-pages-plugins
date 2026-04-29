@@ -14,7 +14,7 @@ If you build classic Power Pages sites — particularly the hybrid pattern where
 |---|---|
 | [`pp-liquid`](plugins/pp-liquid/) | Microsoft Power Pages classic Liquid templating reference — Web Templates, FetchXML in Liquid, Web API in custom JS, hybrid pages, DotLiquid gotchas, troubleshooting |
 | [`pp-sync`](plugins/pp-sync/) | Action skill + `pp` CLI for running portal sync workflows safely — `pac paportal` + project registry + alias resolution + bulk-upload safety guards + 6 ready-to-drop wrapper templates |
-| [`pp-permissions-audit`](plugins/pp-permissions-audit/) | Static-analysis audit of a portal's Web Roles, Table Permissions, Site Settings, and Web API config — 13 checks including base-vs-localized blank-page detection, polymorphic lookup pre-emption, and missing-token detection |
+| [`pp-permissions-audit`](plugins/pp-permissions-audit/) | Static-analysis audit of a portal's Web Roles, Table Permissions, Site Settings, Web API config, AND (when `dataverse-schema/` is present) FetchXML + `$select=` field references — 18 checks including base-vs-localized blank-page detection, polymorphic lookup pre-emption, missing anti-forgery tokens, schema-aware field validation, and divergent base/localized pair detection. Drop-in [GitHub Action template](plugins/pp-permissions-audit/CI.md) for PR gating. |
 
 ## Install
 

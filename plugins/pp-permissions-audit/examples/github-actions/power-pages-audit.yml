@@ -1,0 +1,138 @@
+# Power Pages permissions audit — GitHub Action template
+#
+# Drop this into your Power Pages project's repo at:
+#   .github/workflows/power-pages-audit.yml
+#
+# It runs the pp-permissions-audit script against your portal source on every
+# pull request that touches portal files, fails the PR check on any ERROR-class
+# findings, and uploads the full report (incl. WARN / INFO) as a build artifact.
+#
+# Pin the audit script to a release tag for stability:
+#   AUDIT_REF: 'v1.2.0'   (recommended for production projects)
+#   AUDIT_REF: 'main'     (always latest — convenient for early adopters)
+#
+# Customize the SITE_DIR_PATTERN if your site folder doesn't match the canonical
+# `<name>---<name>/` convention.
+
+name: Power Pages permissions audit
+
+on:
+  pull_request:
+    paths:
+      # Common portal-source paths — adjust if your site folder is in a subdirectory
+      - '**/web-pages/**'
+      - '**/web-templates/**'
+      - '**/web-files/**'
+      - '**/content-snippets/**'
+      - '**/page-templates/**'
+      - '**/site-settings/**'
+      - '**/sitesetting.yml'
+      - '**/sitemarker.yml'
+      - '**/table-permissions/**'
+      - '**/tablepermission.yml'
+      - '**/web-roles/**'
+      - '**/webrole.yml'
+      - '**/dataverse-schema/**'
+  push:
+    branches: [main]                        # also run on main pushes for trend tracking
+
+  # Allow manual dispatch from the Actions UI
+  workflow_dispatch:
+
+env:
+  # Pin to a released version of the audit script. Update when you upgrade.
+  AUDIT_REPO: 'Nerdy-Q/claude-plugins'
+  AUDIT_REF:  'v1.2.0'
+  AUDIT_PATH: 'plugins/pp-permissions-audit/skills/pp-permissions-audit/scripts/audit.py'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Fetch audit script
+        run: |
+          mkdir -p /tmp/pp-audit
+          curl -fsSL "https://raw.githubusercontent.com/${AUDIT_REPO}/${AUDIT_REF}/${AUDIT_PATH}" \
+               -o /tmp/pp-audit/audit.py
+          chmod +x /tmp/pp-audit/audit.py
+          echo "Fetched audit script at $(date -u): $(wc -l < /tmp/pp-audit/audit.py) lines"
+
+      - name: Detect site folder
+        id: site
+        run: |
+          # Find the first directory matching <name>---<name>/ that contains
+          # website.yml + web-pages/. If multiple sites exist (multi-division
+          # repo), the workflow audits the first match — adjust SITE_DIR
+          # explicitly to audit a specific one.
+          SITE_DIR=$(find . -maxdepth 6 -type d -name '*---*' 2>/dev/null | while read d; do
+            if [ -f "$d/website.yml" ] && [ -d "$d/web-pages" ]; then
+              echo "$d"
+              break
+            fi
+          done)
+          if [ -z "$SITE_DIR" ]; then
+            echo "::error::No Power Pages site folder found (expected <name>---<name>/ with website.yml + web-pages/)"
+            exit 1
+          fi
+          echo "Detected site: $SITE_DIR"
+          echo "site_dir=$SITE_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Run audit (PR gate — ERROR-class only)
+        id: gate
+        run: |
+          python3 /tmp/pp-audit/audit.py "${{ steps.site.outputs.site_dir }}" \
+                  --severity ERROR \
+                  --exit-code
+
+      - name: Run audit (full report)
+        if: always()
+        run: |
+          python3 /tmp/pp-audit/audit.py "${{ steps.site.outputs.site_dir }}" \
+                  -o audit-report.md
+          echo
+          echo "=== Audit summary ==="
+          head -25 audit-report.md
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pp-permissions-audit-${{ github.event.pull_request.number || github.sha }}
+          path: audit-report.md
+          retention-days: 30
+
+      # Optional: comment the audit summary on the PR.
+      # Uncomment to enable. Requires `pull-requests: write` permission below.
+      #
+      # - name: Comment audit summary on PR
+      #   if: always() && github.event_name == 'pull_request'
+      #   uses: actions/github-script@v7
+      #   with:
+      #     script: |
+      #       const fs = require('fs');
+      #       const report = fs.readFileSync('audit-report.md', 'utf8');
+      #       const summary = report.split('## Findings')[0]; // header + summary only
+      #       const body = `## Power Pages permissions audit\n\n${summary}\n\n` +
+      #                    `Full report attached as build artifact.`;
+      #       await github.rest.issues.createComment({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         issue_number: context.issue.number,
+      #         body
+      #       });
+
+# To enable PR commenting, also add at the top of this file:
+#
+# permissions:
+#   contents: read
+#   pull-requests: write

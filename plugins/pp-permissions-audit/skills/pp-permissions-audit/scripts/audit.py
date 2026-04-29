@@ -192,6 +192,16 @@ def load_site(state: AuditState) -> None:
         if name:
             state.sitemarkers.add(name)
 
+    # ---- Optional Dataverse schema (sibling dir of the site folder) --------
+    # Walk up from the site folder looking for `dataverse-schema/`.
+    walker = site
+    while walker.parent != walker:
+        candidate = walker.parent / "dataverse-schema"
+        if candidate.is_dir():
+            state.schema_entities = _load_schema(candidate)
+            break
+        walker = walker.parent
+
 
 def _load_records(site: Path, type_stem: str, dir_name: str) -> list[dict[str, Any]]:
     """
@@ -280,28 +290,113 @@ def parse_yaml_text(text: str) -> dict[str, Any]:
             return _parse_yaml_minimal(text)
     return _parse_yaml_minimal(text)
 
-    # Optional Dataverse schema (sibling dir, not always present)
-    repo_root = site
-    while repo_root.parent != repo_root:
-        candidate = repo_root.parent / "dataverse-schema"
-        if candidate.is_dir():
-            state.schema_entities = _load_schema(candidate)
-            break
-        repo_root = repo_root.parent
-
 
 def _load_schema(schema_dir: Path) -> dict[str, dict[str, Any]]:
-    """Walk dataverse-schema/<solution>/Entities/<entity>/Entity.xml for field names."""
+    """Walk dataverse-schema/<solution>/Entities/<entity>/Entity.xml.
+
+    Returns a dict keyed by entity logical name (lowercase) with:
+      - fields: list of attribute logical names (lowercase)
+      - lookup_value_fields: list of `_<attr>_value` forms for lookup reads
+      - entity_set_name: lowercase plural name used in Web API URLs
+      - nav_props: list of navigation property names (case-preserved) from relationships
+    """
     entities: dict[str, dict[str, Any]] = {}
     for entity_xml in schema_dir.glob("**/Entities/*/Entity.xml"):
-        text = entity_xml.read_text(encoding="utf-8", errors="replace")
-        m = re.search(r'Name=\"([^\"]+)\"', text)
+        try:
+            text = entity_xml.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        m = re.search(r'<EntityInfo>.*?<entity\s+Name="([^"]+)"', text, re.DOTALL)
+        if not m:
+            m = re.search(r'<entity\s+Name="([^"]+)"', text)
         if not m:
             continue
         entity_name = m.group(1).lower()
-        field_names = re.findall(r'<attribute\s+PhysicalName=\"([^\"]+)\"', text)
-        entities[entity_name] = {"fields": [f.lower() for f in field_names]}
+
+        # Attribute logical names (the PhysicalName attribute on each <attribute> element)
+        field_names = re.findall(r'<attribute\s+PhysicalName="([^"]+)"', text)
+        lower_fields = [f.lower() for f in field_names]
+
+        # Detect lookup attributes — they have a <Type>lookup</Type> or <Type>customer</Type>
+        # inside the attribute. For each lookup, the `_<attr>_value` form is also valid in $select.
+        lookup_attrs = []
+        for attr_match in re.finditer(
+            r'<attribute\s+PhysicalName="([^"]+)"[^>]*>(.*?)</attribute>',
+            text, re.DOTALL,
+        ):
+            attr_name = attr_match.group(1).lower()
+            attr_body = attr_match.group(2)
+            if re.search(r'<Type>(lookup|customer|owner)</Type>', attr_body, re.IGNORECASE):
+                lookup_attrs.append(attr_name)
+
+        lookup_value_fields = [f"_{a}_value" for a in lookup_attrs]
+
+        # EntitySetName (used in /_api/<entity-set-name>)
+        es_match = re.search(r'EntitySetName="([^"]+)"', text)
+        entity_set_name = es_match.group(1).lower() if es_match else f"{entity_name}s"
+
+        # Navigation property names (preserves case — these match the schema name's casing)
+        nav_props = re.findall(
+            r'<(?:Referencing|Referenced)EntityNavigationPropertyName>([^<]+)</',
+            text,
+        )
+
+        entities[entity_name] = {
+            "fields": lower_fields,
+            "lookup_value_fields": lookup_value_fields,
+            "entity_set_name": entity_set_name,
+            "nav_props": nav_props,
+        }
     return entities
+
+
+def schema_lookup_entity_by_set_name(state: AuditState, entity_set_name: str) -> str | None:
+    """Reverse-lookup: entity-set-name -> entity logical name."""
+    if not state.schema_entities:
+        return None
+    target = entity_set_name.lower()
+    for logical, info in state.schema_entities.items():
+        if info.get("entity_set_name") == target:
+            return logical
+    return None
+
+
+def is_microsoft_entity(entity: str) -> bool:
+    """Heuristic: an entity is a Microsoft built-in if it has no `<prefix>_` form
+    (e.g. `contact`, `account`, `incident`) or its prefix is a known Microsoft prefix.
+
+    Microsoft built-ins are present in custom solutions only as **partial exports**
+    showing the customer's added attributes — never the full standard attribute set.
+    Validating fields against these would be a flood of false positives."""
+    if "_" not in entity:
+        return True  # bare names: contact, account, incident, lead, etc.
+    prefix = entity.split("_", 1)[0]
+    return prefix in {"msdyn", "mscrm", "mspp", "cdm", "msmediasense", "msdynce", "msfp"}
+
+
+def schema_field_valid(state: AuditState, entity: str, field: str) -> bool:
+    """Check whether `field` is a valid attribute on `entity` per schema.
+    Accepts both bare attribute names and `_<attr>_value` lookup forms.
+
+    Returns True (skip) when:
+      - schema isn't loaded
+      - entity is a Microsoft built-in (we only see partial customizations)
+      - entity isn't in the schema (custom entity not exported — partial schema)
+    Returns False only when we have authoritative knowledge that the field is missing.
+    """
+    if not state.schema_entities:
+        return True
+    if is_microsoft_entity(entity):
+        return True
+    info = state.schema_entities.get(entity.lower())
+    if not info:
+        return True
+    f = field.lower()
+    if f in info["fields"]:
+        return True
+    if f in info["lookup_value_fields"]:
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -803,6 +898,136 @@ def check_lowercase_odatabind_navprop(state: AuditState) -> None:
                 )
 
 
+def check_select_fields_against_schema(state: AuditState) -> None:
+    """WARN — Custom JS calls `/_api/<entityset>?$select=field1,...` with a field
+    that does not exist on the entity per Entity.xml. Pure typo detection.
+
+    Only runs when dataverse-schema/ is present.
+    Skips dynamic URL composition (we can only validate static string literals).
+    """
+    if not state.schema_entities:
+        return
+    # Match: '/_api/<entityset>(...optional)(?...optional)' inside string literals
+    url_re = re.compile(
+        r"""['"]\s*/_api/([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\([^)]*\))?\s*(\?[^'"]*)?\s*['"]""",
+    )
+    select_re = re.compile(r"\$select=([a-zA-Z_,]+)")
+
+    for js in state.custom_js:
+        try:
+            text = js.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for url_match in url_re.finditer(text):
+            entityset = url_match.group(1).lower()
+            qs = url_match.group(2) or ""
+            entity = schema_lookup_entity_by_set_name(state, entityset)
+            if not entity:
+                continue  # built-in or unknown — can't validate
+            sel_match = select_re.search(qs)
+            if not sel_match:
+                continue
+            fields = [f.strip() for f in sel_match.group(1).split(",") if f.strip()]
+            for field in fields:
+                if not schema_field_valid(state, entity, field):
+                    line_no = text[: url_match.start()].count("\n") + 1
+                    state.add(
+                        "WARN",
+                        "WRN-006",
+                        f"`$select={field}` references a field that does not exist on `{entity}`",
+                        f"Per Entity.xml, `{entity}` has no attribute named `{field}`. "
+                        f"Likely a typo or a stale field name from a renamed column. "
+                        f"Available attributes on this entity (sample): "
+                        f"{', '.join(state.schema_entities[entity]['fields'][:8])}…",
+                        location=f"{js}:{line_no}",
+                    )
+
+
+def check_fetchxml_attributes_against_schema(state: AuditState) -> None:
+    """WARN — `{% fetchxml %}` block references an attribute that does not exist
+    on its containing entity per Entity.xml.
+
+    Only runs when dataverse-schema/ is present.
+    """
+    if not state.schema_entities:
+        return
+
+    fetchxml_re = re.compile(r"{%\s*fetchxml\s+\w+\s*%}(.+?){%\s*endfetchxml\s*%}", re.DOTALL)
+    entity_re = re.compile(r'<entity\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"')
+    attribute_re = re.compile(r'<attribute\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"')
+    link_entity_re = re.compile(r'<link-entity\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"', re.DOTALL)
+
+    files_to_scan = list(state.web_templates) + list(state.page_html_files) + list(state.content_snippets)
+    for path in files_to_scan:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for fx_match in fetchxml_re.finditer(text):
+            block = fx_match.group(1)
+            ent_match = entity_re.search(block)
+            if not ent_match:
+                continue
+            root_entity = ent_match.group(1).lower()
+            # Only validate if entity is in schema (skip built-ins)
+            if root_entity not in state.schema_entities:
+                continue
+            # Find all <attribute name="..."> in the OUTER entity (not inside link-entity)
+            # Approximation: scan all attribute matches, and note that
+            # link-entity introduces a different entity context.
+            # For simplicity, treat any <attribute> after a <link-entity> as "in linked context"
+            # and skip — but flag attributes BEFORE the first link-entity as belonging to root_entity.
+            link_match = link_entity_re.search(block)
+            outer_block = block[: link_match.start()] if link_match else block
+            for attr_match in attribute_re.finditer(outer_block):
+                attr_name = attr_match.group(1).lower()
+                if not schema_field_valid(state, root_entity, attr_name):
+                    line_no = text[: fx_match.start() + attr_match.start()].count("\n") + 1
+                    state.add(
+                        "WARN",
+                        "WRN-007",
+                        f"FetchXML attribute `{attr_name}` does not exist on `{root_entity}`",
+                        f"Per Entity.xml, `{root_entity}` has no attribute named `{attr_name}`. "
+                        f"FetchXML uses logical names (lowercase). Likely a typo or stale field "
+                        f"reference. The query will return an error when the page renders.",
+                        location=f"{path}:{line_no}",
+                    )
+
+
+def check_webapi_fields_whitelist_against_schema(state: AuditState) -> None:
+    """WARN — Site Setting `Webapi/<entity>/Fields = field1,field2,...` lists a
+    field that does not exist on the entity per Entity.xml.
+
+    Only runs when dataverse-schema/ is present. Stale fields in the whitelist
+    silently exclude themselves (no error in the API), but they signal config
+    drift after a column rename or removal.
+    """
+    if not state.schema_entities:
+        return
+    for name, value in state.site_settings.items():
+        m = re.fullmatch(r"Webapi/([A-Za-z0-9_]+)/[Ff]ields", name)
+        if not m:
+            continue
+        entity = m.group(1).lower()
+        if entity not in state.schema_entities:
+            continue  # built-in or partial-export — skip
+        v = str(value).strip()
+        if v == "*" or v == "":
+            continue
+        listed_fields = [f.strip() for f in v.split(",") if f.strip()]
+        bad = [f for f in listed_fields if not schema_field_valid(state, entity, f)]
+        if bad:
+            state.add(
+                "WARN",
+                "WRN-008",
+                f"`Webapi/{entity}/Fields` lists {len(bad)} field(s) that do not exist on `{entity}`",
+                f"Stale or typo'd entries: {', '.join(bad)}. "
+                f"These don't break the API (they're silently ignored) but signal config "
+                f"drift — likely after a column rename or removal. Update the whitelist.",
+                location=f"site-settings/.../{name}",
+            )
+
+
 def check_missing_sitemarker_references(state: AuditState) -> None:
     """WARN — Liquid template references `sitemarkers['<name>']` that isn't defined."""
     if not state.sitemarkers:
@@ -943,6 +1168,9 @@ def main(argv: list[str] | None = None) -> int:
     check_webapi_without_safeajax(state)
     check_missing_sitemarker_references(state)
     check_lowercase_odatabind_navprop(state)
+    check_select_fields_against_schema(state)
+    check_fetchxml_attributes_against_schema(state)
+    check_webapi_fields_whitelist_against_schema(state)
 
     # Apply severity filter
     if args.severity:

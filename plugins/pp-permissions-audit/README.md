@@ -36,6 +36,8 @@ The skill knows where the cached `audit.py` lives and will invoke it automatical
 - `references/interpreting.md` — how to interpret each finding type, false-positive cases, when to act
 - `references/remediation.md` — how to fix each finding type
 - `references/api-config.md` — Power Pages Web API site setting reference (deep)
+- `CI.md` — GitHub Actions / Azure Pipelines / pre-commit hook integration
+- `examples/github-actions/power-pages-audit.yml` — drop-in workflow template
 
 ## What it catches in production
 
