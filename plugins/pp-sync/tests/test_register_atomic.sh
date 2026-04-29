@@ -19,10 +19,20 @@ PASS=0
 FAIL=0
 FAIL_NAMES=()
 
+TMPDIRS=()
+cleanup_tmpdirs() {
+    local tmp
+    for tmp in "${TMPDIRS[@]}"; do
+        rm -rf "$tmp"
+    done
+}
+trap cleanup_tmpdirs EXIT
+
 run_reject_test() {
     local label="$1" stdin="$2"
     local tmp
     tmp=$(mktemp -d)
+    TMPDIRS+=( "$tmp" )
     export PP_CONFIG_DIR="$tmp"
 
     local output exit_code
@@ -54,6 +64,7 @@ run_accept_test() {
     local label="$1" stdin="$2" expect_solutions="$3"
     local tmp
     tmp=$(mktemp -d)
+    TMPDIRS+=( "$tmp" )
     export PP_CONFIG_DIR="$tmp"
 
     local output exit_code
