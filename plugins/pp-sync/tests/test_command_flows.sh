@@ -353,6 +353,15 @@ if [ -f "$html_path" ]; then
     assert_contains "generated HTML has Bootstrap container" "container" "$html_content"
 fi
 
+# JS / CSS placeholder files exist (Power Pages expects them to be
+# present even when empty)
+js_path="$page_dir/My New Page.webpage.custom_javascript.js"
+css_path="$page_dir/My New Page.webpage.custom_css.css"
+[ -f "$js_path" ] && assert_pass "generated custom JS file exists" \
+    || assert_fail "custom JS file missing" "page_dir contents: $(ls "$page_dir/")"
+[ -f "$css_path" ] && assert_pass "generated custom CSS file exists" \
+    || assert_fail "custom CSS file missing"
+
 # --- Section 9: cmd_sync_pages -------------------------------------------
 
 echo
@@ -396,6 +405,53 @@ out=$(PP_CONFIG_DIR="$reg" "$PP_BIN" sync-pages alpha bogus 2>&1 || true)
 assert_contains "invalid explicit sync-pages direction rejected" "Invalid sync-pages direction" "$out"
 
 # --- Section 10: cmd_help ------------------------------------------------
+
+echo
+echo "Section 10b — cmd_setup detection phase"
+echo
+
+# Test the discovery / detection phases of `pp setup` — PAC profile
+# enumeration, candidate-folder scanning, and the confirmation prompt.
+# We DO NOT drive the full 8-prompt registration flow because that
+# requires non-trivial stdin orchestration; instead we verify setup
+# correctly reaches the candidate-walkthrough phase, then cleanly
+# aborts when the user declines.
+#
+# Full registration is exercised by test_register_atomic.sh via
+# `pp project add`, which uses the same identifier-validation and
+# atomic-write paths as setup.
+
+setup_tmp=$(mktemp -d); TMPDIRS+=( "$setup_tmp" )
+fake_home="$setup_tmp/home"
+mkdir -p "$fake_home/Projects/AcmeCorp/acme---acme/web-pages"
+echo "adx_name: Acme Site" > "$fake_home/Projects/AcmeCorp/acme---acme/website.yml"
+
+mock_dir="$(cd "$SCRIPT_DIR/mocks" && pwd)"
+mock_state="$setup_tmp/pac"
+mkdir -p "$mock_state"
+echo "myprof=https://acme-dev.crm.dynamics.com/" > "$mock_state/profiles"
+
+# Decline the candidate walkthrough → setup exits cleanly without
+# registering anything.
+setup_out=$(printf 'n\n' | \
+    HOME="$fake_home" PATH="$mock_dir:$PATH" \
+    PP_CONFIG_DIR="$setup_tmp/pp" \
+    PP_MOCK_PAC_STATE_DIR="$mock_state" \
+    "$PP_BIN" setup 2>&1 || true)
+
+assert_contains "setup detects PAC profile from mock" "myprof" "$setup_out"
+assert_contains "setup scans for Power Pages site folders" "Scanning" "$setup_out"
+assert_contains "setup discovers the candidate folder" "acme---acme" "$setup_out"
+# The "Walk through ..." prompt appears via read -p which writes to
+# stderr SYNCHRONOUSLY with the read syscall; in piped contexts the
+# prompt may be intermingled or pre-consumed. Instead assert on the
+# user-decline branch's output ("Aborted").
+assert_contains "setup respects user declining walkthrough" "Aborted" "$setup_out"
+
+# When user declines, NO projects should be registered
+project_count=$(find "$setup_tmp/pp/projects" -maxdepth 1 -name '*.conf' 2>/dev/null | wc -l | tr -d ' ')
+[ "${project_count:-0}" = "0" ] && assert_pass "setup respects 'n' to walkthrough (no confs created)" \
+    || assert_fail "setup created a conf despite user declining" "found $project_count conf(s)"
 
 echo
 echo "Section 10 — cmd_help"
