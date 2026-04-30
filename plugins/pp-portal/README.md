@@ -1,6 +1,6 @@
 # pp-portal
 
-A Claude Code skill for working in **classic Microsoft Power Pages** portals — the **hybrid Liquid + Web API pattern**. Server-rendered Liquid templates render the initial state; custom JavaScript calls `/_api/<entity>` for interactivity. Covers Web Templates, FetchXML in Liquid, Web API in custom JS, hybrid render-then-mutate pages, DotLiquid quirks, `pac paportal` sync, and accessibility.
+A Claude Code skill for working in **classic Microsoft Power Pages** portals — the **hybrid Liquid + Web API pattern**. Server-rendered Liquid templates render the initial state; custom JavaScript calls `/_api/<entity>` for interactivity. Covers Web Templates, FetchXML in Liquid, Web API in custom JS, hybrid render-then-mutate pages, DotLiquid quirks, `pac paportal` sync, accessibility, and design-system composition for Material Design 3, Apple HIG, Fluent 2, USWDS 3, and shadcn/ui-style portals.
 
 ## What this is
 
@@ -16,6 +16,8 @@ This is a **knowledge skill**, not a runner skill. It provides the model with re
 - DotLiquid-specific gotchas (JSON escape, date filters, comment syntax)
 - `pac paportal` sync workflow patterns
 - Accessibility (WCAG 2.2 / Section 508 / EN 301 549) commitments and gaps
+- Design-system routing and crossover guidance for Material 3, Apple HIG, Fluent 2, USWDS 3, and shadcn/ui
+- Responsive defaults for mobile and tablet optimization
 
 **NOT for:**
 
@@ -68,6 +70,17 @@ The skill loads `SKILL.md` first (router + critical gotchas). Detail lives in to
 - `references/pages/styling-and-design.md` — CSS load order, theme system, Bootstrap 3→5 mappings
 - `references/pages/bundled-libraries.md` — what jQuery / Bootstrap / etc. ship with the platform
 
+### Design systems + responsive composition
+
+- `references/design-systems/system-selection.md` — primary-system choice, safe crossover rules, portal-safe borrowing strategy
+- `references/design-systems/responsive-defaults.md` — mobile-first and tablet defaults for layouts, forms, tables, and motion
+- `references/design-systems/strict-csp.md` — strict-CSP-safe UI guidance for local JS/CSS, no runtime script injection, and low-dependency patterns
+- `references/design-systems/uswds-3.md` — USWDS 3 guidance for civic/compliance-heavy portals
+- `references/design-systems/material-3.md` — Material Design 3 guidance for mobile-first and richer state patterns
+- `references/design-systems/apple-hig.md` — Apple Human Interface Guidelines guidance for clarity and touch ergonomics
+- `references/design-systems/fluent-2.md` — Fluent 2 guidance for Microsoft-adjacent enterprise portals
+- `references/design-systems/shadcn-ui.md` — shadcn/ui guidance for composable modern web patterns
+
 ### Workflow + tooling
 
 - `references/workflow/sync-workflow.md` — `pac paportal` patterns, wrapper scripts, cache hangs
@@ -97,9 +110,9 @@ claude plugin install pp-portal@nq-claude-power-pages-plugins
 
 After install, ask Claude something like:
 
-> What's the right pattern for a paginated, search-filterable customer list on a Power Pages portal?
+> What's the right pattern for a USWDS-first Power Pages portal that needs a carousel hero and still has to stay accessible on mobile?
 
-The model should load `SKILL.md` and `references/data/fetchxml-patterns.md` automatically.
+The model should load `SKILL.md` and the relevant design-system references automatically.
 
 ## License
 
