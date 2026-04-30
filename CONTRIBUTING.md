@@ -139,11 +139,26 @@ bash plugins/pp-sync/tests/test_subcommand_safety.sh      # subcommand edge case
 bash plugins/pp-sync/tests/test_command_flows.sh          # happy-path + error-path flows
 bash plugins/pp-sync/tests/test_install_script.sh         # installer behavior
 bash plugins/pp-sync/tests/test_pac_mocked.sh            # mocked pac CLI flows
+bash plugins/pp-sync/tests/test_journal_state.sh         # journal state + concurrency
 ```
 
 The bash suites use fixture files under `plugins/pp-sync/tests/fixtures/` and a source-safe pattern that loads `bin/pp` without dispatching commands. See `plugins/pp-sync/tests/README.md` for fixture conventions and how to add a new test.
 
 When adding a new `pp` subcommand or registration path, add fixtures + assertions to the matching suite. The suites are wired into `.github/workflows/plugin-validate.yml` automatically.
+
+## pac contract tests
+
+`plugins/pp-sync/tests/test_pac_contract.sh` defines what `pp` expects from each `pac` subcommand — output patterns, exit codes, filesystem effects. Two run modes:
+
+```bash
+bash plugins/pp-sync/tests/test_pac_contract.sh            # mock mode (CI)
+PP_PAC_REAL=1 bash plugins/pp-sync/tests/test_pac_contract.sh
+                                                            # real pac mode
+```
+
+CI runs the mock mode on every PR, verifying that `tests/mocks/pac` still satisfies the contract. **Run the real-pac mode before each release** (after `pac install latest`) — it catches the case where Microsoft ships a new `pac` version that changes output formats. If real pac fails the contract, either pp's parsers need updating OR the contract assertions are over-strict and need to relax.
+
+A passing real-pac run with skips is normal — most assertions skip in real mode because they'd mutate user state (e.g., `auth select` against an unknown profile, `paportal upload` against a real environment). The output-shape assertions (`auth list` row shape, `pac help` callable) run in both modes and gate the contract.
 
 ## Integration tests (local-only)
 

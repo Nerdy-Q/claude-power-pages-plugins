@@ -183,6 +183,11 @@ jobs:
           bash plugins/pp-sync/tests/test_journal_state.sh
           echo "OK    pp journal-state tests pass"
 
+      - name: Run pac contract tests (mock mode)
+        run: |
+          bash plugins/pp-sync/tests/test_pac_contract.sh
+          echo "OK    pac contract tests pass against mock"
+
       - name: Bash syntax check
         run: |
           fail=0
