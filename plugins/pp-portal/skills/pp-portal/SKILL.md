@@ -1,6 +1,6 @@
 ---
 name: pp-portal
-description: Microsoft Power Pages classic portals — optimized for the current enhanced-model workflow around the native Power Pages Studio hybrid Liquid + Web API pattern. Server-rendered Liquid templates with client-side Web API calls in custom JS. Use when working in *.webpage.copy.html, *.webtemplate.source.html, *.webpage.custom_javascript.js, or when the user mentions Power Pages, fetchxml, entitylist, entityform, webform, web roles, table permissions, sitemarkers, or pac paportal. NOT for full code sites / React-style SPAs (use Microsoft's power-pages plugin); for Dataverse-side work (schema authoring, data import, solutions), defer to Microsoft's dataverse plugin (dv-connect, dv-query, dv-metadata, dv-solution).
+description: Microsoft Power Pages classic portals — optimized for the current enhanced-model workflow around the native Power Pages Studio hybrid Liquid + Web API pattern. Server-rendered Liquid templates with client-side Web API calls in custom JS. Also covers portal-facing design-system composition and responsive defaults when the user asks for Material Design 3, Apple Human Interface Guidelines, Fluent 2, USWDS 3, shadcn/ui, mobile, tablet, accessibility, or crossover component patterns inside classic Power Pages. Use when working in *.webpage.copy.html, *.webtemplate.source.html, *.webpage.custom_javascript.js, or when the user mentions Power Pages, fetchxml, entitylist, entityform, webform, web roles, table permissions, sitemarkers, or pac paportal. NOT for full code sites / React-style SPAs (use Microsoft's power-pages plugin); for Dataverse-side work (schema authoring, data import, solutions), defer to Microsoft's dataverse plugin (dv-connect, dv-query, dv-metadata, dv-solution).
 ---
 
 # Power Pages Portal (classic, hybrid)
@@ -180,6 +180,21 @@ How a page is constructed and styled — the rendering surface users actually se
 - [references/pages/hybrid-page-idiom.md](references/pages/hybrid-page-idiom.md) — Liquid render scaffold + JS mutate; base vs localized files
 - [references/pages/styling-and-design.md](references/pages/styling-and-design.md) — CSS load order, theme system, page templates vs web templates, Bootstrap 3→5 class mappings
 - [references/pages/bundled-libraries.md](references/pages/bundled-libraries.md) — what jQuery / Bootstrap / etc. ship with the platform and what's safe to assume
+
+### Design systems + responsive composition
+
+Use these when the user wants a portal that deliberately follows a named design system, combines systems, or needs stronger mobile/tablet guidance by default. Each per-system file embeds the full component catalog, token theory, license/foot-guns, and Power Pages implementation bias — model can answer most questions without fetching the canonical docs.
+
+- [references/design-systems/README.md](references/design-systems/README.md) — **start here**: layout, routing logic, what this layer does and doesn't cover
+- [references/design-systems/system-selection.md](references/design-systems/system-selection.md) — choose a primary system, borrow missing patterns safely, **special rule** for "primary is web-only but mobile-app feel needed (USWDS) — ask iOS or Android"
+- [references/design-systems/crossover-recipes.md](references/design-systems/crossover-recipes.md) — concrete code: USWDS hero with Material 3 carousel, USWDS web with iOS-native feel, USWDS web with Android-native feel, Fluent 2 enterprise card with shadcn polish, shadcn product portal with USWDS form rigor, Apple HIG calm + USWDS civic seriousness
+- [references/design-systems/responsive-defaults.md](references/design-systems/responsive-defaults.md) — mobile-first, tablet, desktop, touch, density, forms, tables, motion defaults
+- [references/design-systems/strict-csp.md](references/design-systems/strict-csp.md) — assume strict CSP by default; keep design recommendations compatible with portal-local JS/CSS and tight `script-src`
+- [references/design-systems/uswds-3.md](references/design-systems/uswds-3.md) — U.S. Web Design System 3 (civic/government, web-only, no carousel, no mobile-app nav); full catalog + tokens
+- [references/design-systems/material-3.md](references/design-systems/material-3.md) — Material Design 3 (mobile-first, **carousel added in M3**, tonal palette, type scale); full catalog + tokens
+- [references/design-systems/apple-hig.md](references/design-systems/apple-hig.md) — Apple HIG (values + components reference; **critical: SF font and SF Symbols are not licensed for web**)
+- [references/design-systems/fluent-2.md](references/design-systems/fluent-2.md) — Microsoft Fluent 2 (closest fit to Power Pages out of the box, alias tokens, Segoe fallback); full v9 catalog
+- [references/design-systems/shadcn-ui.md](references/design-systems/shadcn-ui.md) — shadcn/ui (Radix + Tailwind under the hood; **treat as pattern source, not install target**); full registry + Lucide icon attribution
 
 ### Workflow + tooling
 
