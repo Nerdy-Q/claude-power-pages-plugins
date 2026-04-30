@@ -2,6 +2,47 @@
 
 All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
 
+## [2.11.0] — 2026-04-30
+
+Closes the "real-pac behavior diff the mock can't catch" gap from v2.10.0's "remaining gaps" list. New contract test suite — runnable against either the mock (default, CI) or real `pac` (release-prep) — defines what pp depends on from each pac subcommand and verifies the dependency holds.
+
+### Added (pp-sync v2.4.0)
+
+- **`tests/test_pac_contract.sh`** — 10 contract assertions across 6 sections covering every pac subcommand pp invokes:
+  - `auth list` — row shape (`UNIVERSAL <profile>` substring), URL presence
+  - `auth select` — exit-code semantics for known/unknown profiles
+  - `org who` — `Environment Url:` line shape and URL parseability
+  - `paportal upload --validateBeforeUpload` — validation message presence
+  - `solution unpack` — produces target folder + `Entities/` subdir pp counts
+  - `pac --version` / `pac help` — callability
+
+  Two run modes:
+
+  ```bash
+  bash plugins/pp-sync/tests/test_pac_contract.sh            # mock (CI)
+  PP_PAC_REAL=1 bash plugins/pp-sync/tests/test_pac_contract.sh   # real pac
+  ```
+
+  CI runs the mock mode on every PR. **Maintainers run the real-pac mode before each release** to catch drift when Microsoft changes pac output formats. Mode-specific assertions skip cleanly when they'd mutate user state (e.g., `auth select` to a real profile, `paportal upload` against a real environment).
+
+### Bug surfaced + fixed (in this same release)
+
+Running the contract suite against real pac immediately surfaced a discrepancy: real pac's `auth list` has 9 columns (Index/Active/Kind/Name/User/Cloud/Type/Environment/URL) while the mock had 5 (Index/Active/Kind/Name/URL). The original contract assertion `UNIVERSAL <name> <url>` was over-strict and would have rejected real pac as drifted — but pp's actual `grep -qE "UNIVERSAL[[:space:]]+\${PROFILE}\b"` doesn't depend on column 5 being a URL.
+
+Fix: relaxed the contract assertion to match what pp actually parses (`UNIVERSAL <name>` substring), with a separate soft check for "URL appears anywhere on the row." This is the right shape — **the contract reflects the dependency, not the format.**
+
+### Documentation
+
+- `CONTRIBUTING.md` "pac contract tests" section documents the two run modes, the release-prep workflow, and the meaning of skipped assertions.
+
+### CI
+
+- New "Run pac contract tests (mock mode)" step. Total CI test count: **238** (was 228).
+
+### Why this closes the v2.10.0 gap
+
+v2.10.0's CHANGELOG acknowledged: "Real-pac behavior diffs the mock can't catch. Covered by local integration suite." That coverage was correct but reactive — drift would only surface when a maintainer happened to run the integration suite. The contract suite makes the dependency explicit in code: any real pac that fails this contract will break pp's parsers, so the maintainer can fix one or the other before users hit the drift.
+
 ## [2.10.0] — 2026-04-30
 
 Closes the two known journal-tracking gaps that v2.9.4 acknowledged but didn't fix.
@@ -607,6 +648,7 @@ Static analysis of Power Pages portal permissions and Web API configuration. Std
 - Per-plugin manifests + READMEs
 - `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
 
+[2.11.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.11.0
 [2.10.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.10.0
 [2.9.4]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.9.4
 [2.9.3]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.9.3

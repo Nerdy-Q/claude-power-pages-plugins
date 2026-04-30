@@ -1,6 +1,6 @@
 # pp-sync test suites
 
-Bash regression tests for `pp` CLI behavior. Seven suites run in CI on every PR via `.github/workflows/plugin-validate.yml`.
+Bash regression tests for `pp` CLI behavior. Eight suites run in CI on every PR via `.github/workflows/plugin-validate.yml`.
 
 ## Suites
 
@@ -13,6 +13,7 @@ Bash regression tests for `pp` CLI behavior. Seven suites run in CI on every PR 
 | `test_subcommand_safety.sh` | 30 | Negative and edge-case coverage for subcommands beyond the parser: page-name traversal/injection rejection (incl. empty-slug rejection), solution-name CLI-arg validation, journal `Issue:` extraction invariants, solution-pick range validation, and doctor pipefail tolerance. |
 | `test_install_script.sh` | 13 | Installer UX and safety: fresh install, idempotent re-run, non-symlink backup behavior, PATH guidance, and installed `pp help` smoke check. |
 | `test_pac_mocked.sh` | 23 | Mocked `pac` CLI flows in CI: doctor, switch/status, download/upload, solution export/import, validate-only upload, diff, and failure-injection paths without requiring a real tenant. |
+| `test_journal_state.sh` | 10 | Journal active-issue state tracking and concurrency: state lifecycle, stale-state clearing, JOURNAL.md fallback, atomic concurrent opens, and project-remove cleanup. |
 
 Run any suite locally:
 
