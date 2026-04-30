@@ -523,8 +523,12 @@ cmd_setup() {
         local branch
         read -r -p "Default branch (blank for any): " branch
 
-        # Journaling and Project Boards
-        local board_url board_system ai_attr auto_journal
+        # Journaling and Project Boards. Default the three optional
+        # fields to empty/safe values up-front so they're set even on
+        # the journaling-declined branch — under `set -u` (active in
+        # main) referencing an unset local in the heredoc below would
+        # abort.
+        local board_url="" board_system="" ai_attr="" auto_journal
         echo
         info "--- Journaling & Project Boards ---"
         read -r -p "Enable automated journaling for this project? [Y/n]: " auto_journal
