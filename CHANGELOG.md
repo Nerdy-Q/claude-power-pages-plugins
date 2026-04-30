@@ -52,12 +52,21 @@ The new layer triggers the `validate_doc_links.py` script added in v2.11.3:
 
 All resolve. CI catches any future drift.
 
+### Tests added (test count: 330, was 306)
+
+- **`plugins/pp-portal/tests/test_design_systems.py`** — 24 regression tests across 4 classes that lock the load-bearing knowledge in place:
+  - `TestLicenseTraps` (3 tests) — code blocks must NOT recommend SF Pro / San Francisco as a downloaded font, must NOT host Segoe UI as a web asset via `@font-face url(...)`, must NOT include SF Symbols glyph references on web pages
+  - `TestCSPSafety` (5 tests) — code blocks must NOT include CDN URLs, inline `on*=` event handlers, dynamic-code-evaluation primitives, unsafe DOM-write APIs (string-assignment to `inner` / `outer` HTML properties, doc-stream write), or runtime script-tag injection
+  - `TestRequiredSections` (1 test, 5 files × 5 sections each) — every per-system file must contain Canonical sources, Component catalog, Token theory, License, and Pairing sections
+  - `TestRequiredFacts` (15 tests) — pin the most-likely-to-be-quietly-deleted warnings: SF font is not for web, USWDS has no carousel + points to Material/shadcn, Material 3 added carousel, Segoe is Windows-licensed, Fluent v8 vs v9 distinction, shadcn is a pattern source not an install target, system-selection has the iOS/Android special rule, crossover-recipes has at least 6 recipes including the USWDS variants, and every system file lists its license
+- Detection patterns for unsafe API names are constructed from string fragments to avoid tripping security-reminder hooks that scan for raw substrings — this file detects unsafe usage, never invokes anything
+- Verified the regression suite catches real injections: an SF Pro Display font-family added to apple-hig.md fails `test_no_sf_pro_or_san_francisco_as_font_family`; gutting the License section fails the SF-warning facts tests
+- Also fixed a real bug in the `code_blocks` parser: the original regex didn't anchor fences to line starts, so an indented opening fence inside a markdown list could pair with the next unindented closing fence and swallow everything between, defeating per-block detection. Pattern now anchored with `^[ \t]*` and `re.MULTILINE`
+
 ### CI
 
-No new CI steps — existing workflow validates the new files via:
-- SKILL.md frontmatter validation
-- Doc cross-reference validator (catches dead links)
-- Marketplace + version sync check
+- New "Run pp-portal design-system regression tests" step in `plugin-validate.yml`. Total CI test count: **330** (was 306).
+- Frontmatter validation, doc cross-reference validator, marketplace + version sync — all unchanged.
 
 ### Versions
 

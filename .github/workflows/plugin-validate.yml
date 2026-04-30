@@ -148,6 +148,13 @@ jobs:
           python3 -m unittest plugins/pp-permissions-audit/skills/pp-permissions-audit/scripts/test_audit.py
           echo "OK    audit.py regression tests pass"
 
+      - name: Run pp-portal design-system regression tests
+        run: |
+          # File-path form (not dotted) because the plugin dir contains a
+          # hyphen (`pp-portal`), which isn't a valid Python module name.
+          python3 -m unittest plugins/pp-portal/tests/test_design_systems.py
+          echo "OK    pp-portal design-system tests pass"
+
       - name: Run pp load_project regression tests
         run: |
           bash plugins/pp-sync/tests/test_load_project.sh
