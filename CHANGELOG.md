@@ -2,6 +2,19 @@
 
 All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
 
+## [2.9.3] — 2026-04-29
+
+Chunk 4 of pac mocking — `pp setup` detection phase coverage. Test count: **211** (was 204).
+
+### Tests added (test_command_flows.sh, +7 cases)
+
+- **`pp setup` detection phase (5 cases)** — fake `$HOME/Projects/AcmeCorp/acme---acme/` fixture + mock `pac auth list`. Asserts setup detects the PAC profile, scans for site folders, discovers the candidate, prompts for walkthrough confirmation, and respects user declining (no confs created). Full registration flow not driven via stdin — that path is exercised by `test_register_atomic.sh` via `pp project add` (same identifier validation + atomic write paths).
+- **`pp generate-page` JS/CSS placeholder files (2 cases)** — generated page directory must include `<Page>.webpage.custom_javascript.js` and `<Page>.webpage.custom_css.css` even when empty (Power Pages expects them present at runtime).
+
+### Why the partial setup coverage
+
+`pp setup`'s 8-prompt registration flow is hard to drive deterministically via piped stdin — `read -p` interleaves with stdout in non-TTY contexts, making prompt visibility unreliable. The detection-phase tests catch the most likely regression class (setup not reaching the candidate walkthrough). The actual write paths are covered by the `pp project add` atomic-registration suite, which uses the same `validate_identifier` / `format_solutions_array` / atomic-write helpers.
+
 ## [2.9.2] — 2026-04-29
 
 Chunk 3 of pac mocking — closing the long-tail coverage gaps. Pure test additions, no code changes. Test count: **204** (was 189).
@@ -541,6 +554,7 @@ Static analysis of Power Pages portal permissions and Web API configuration. Std
 - Per-plugin manifests + READMEs
 - `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
 
+[2.9.3]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.9.3
 [2.9.2]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.9.2
 [2.9.1]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.9.1
 [2.9.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.9.0
