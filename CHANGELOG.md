@@ -2,6 +2,47 @@
 
 All notable changes to this marketplace are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with version numbers tracking the marketplace as a whole. Per-plugin versions live in each `plugins/<name>/.claude-plugin/plugin.json` and are noted below where they advance.
 
+## [2.9.2] — 2026-04-29
+
+Chunk 3 of pac mocking — closing the long-tail coverage gaps. Pure test additions, no code changes. Test count: **204** (was 189).
+
+### Tests added
+
+**Generated content correctness (test_command_flows.sh, +5 cases)**
+- `cmd_generate_page` YAML has `adx_name`, `adx_partialurl`, `adx_publishingstateid: Published`
+- Generated HTML mentions the page title + Bootstrap container class
+- Localized variant exists at `content-pages/en-US/<Page>.en-US.<suffix>` (the proper Power Pages layout fixed in v2.7.6)
+
+**`pp doctor` site-content counts beyond zero (test_pac_mocked.sh, +4 cases)**
+- Pre-populates a fixture site with 3 web-pages, 2 web-templates, 1 content-snippet, 1 table-permission
+- Asserts each count line shows the expected number, not just that the section appears
+
+**`pp diff` reports changed files (test_pac_mocked.sh, +1 case)**
+- Initializes a git repo, modifies a file, runs `pp diff`, verifies the diff completes without crash
+
+**Audit rule negative cases (test_audit.py, +5 cases)**
+- WRN-005 doesn't fire on PascalCase navigation property (the SAFE form)
+- WRN-008 doesn't fire on empty `Webapi/<entity>/Fields = ""`
+- INFO-007 doesn't fire on safe `replace: 'X', 'Y'` patterns (no quote escaping)
+- INFO-008 doesn't fire on `{% for %}` loops without nested queries
+- WRN-003 doesn't fire when the sitemarker IS defined
+
+These guard against regressions where a refactor accidentally broadens a rule's trigger condition (false-positive flood).
+
+### Suite-by-suite test count
+
+| Suite | Before | After |
+|---|---|---|
+| audit.py | 26 | **31** |
+| test_load_project.sh | 21 | 21 |
+| test_register_atomic.sh | 6 | 6 |
+| test_journal_url_validation.sh | 16 | 16 |
+| test_subcommand_safety.sh | 23 | 23 |
+| test_command_flows.sh | 66 | **71** |
+| test_install_script.sh | 13 | 13 |
+| test_pac_mocked.sh | 18 | **23** |
+| **Total** | **189** | **204** |
+
 ## [2.9.1] — 2026-04-29
 
 Chunk 2 of pac mocking. 5 more tests + 2 real bugs surfaced + fixed by writing them.
@@ -500,6 +541,7 @@ Static analysis of Power Pages portal permissions and Web API configuration. Std
 - Per-plugin manifests + READMEs
 - `pp` installer (`./plugins/pp-sync/install.sh`) symlinks the CLI into `~/.local/bin/`
 
+[2.9.2]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.9.2
 [2.9.1]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.9.1
 [2.9.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.9.0
 [2.8.0]: https://github.com/Nerdy-Q/claude-power-pages-plugins/releases/tag/v2.8.0

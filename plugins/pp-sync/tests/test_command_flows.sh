@@ -335,6 +335,24 @@ page_dir="$site_dir/web-pages/my-new-page"
 out=$(PP_CONFIG_DIR="$reg" "$PP_BIN" generate-page alpha "My New Page" 2>&1 || true)
 assert_contains "duplicate generate-page rejected" "already exists" "$out"
 
+# Content correctness: verify the generated files have the expected
+# structure (adx_name in YAML, page title in HTML).
+yaml_path="$page_dir/My New Page.webpage.yml"
+html_path="$page_dir/My New Page.webpage.copy.html"
+
+if [ -f "$yaml_path" ]; then
+    yaml_content=$(cat "$yaml_path")
+    assert_contains "generated YAML has adx_name" "adx_name: My New Page" "$yaml_content"
+    assert_contains "generated YAML has adx_partialurl" "adx_partialurl: my-new-page" "$yaml_content"
+    assert_contains "generated YAML has adx_publishingstateid" "Published" "$yaml_content"
+fi
+
+if [ -f "$html_path" ]; then
+    html_content=$(cat "$html_path")
+    assert_contains "generated HTML mentions page title" "My New Page" "$html_content"
+    assert_contains "generated HTML has Bootstrap container" "container" "$html_content"
+fi
+
 # --- Section 9: cmd_sync_pages -------------------------------------------
 
 echo

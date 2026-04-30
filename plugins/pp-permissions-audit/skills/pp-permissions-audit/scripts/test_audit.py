@@ -775,5 +775,106 @@ class AuditPermissionRulesTest(unittest.TestCase):
         self.assertIsInstance(report.get("findings", []), list)
 
 
+class AuditNegativeCasesTest(unittest.TestCase):
+    """Negative-case coverage: rules must NOT fire on clean fixtures.
+    These guard against regressions where a refactor accidentally
+    broadens a rule's trigger condition (false-positive flood)."""
+
+    def run_audit(self, site_dir: Path) -> dict:
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = AUDIT.main([str(site_dir), "--json"])
+        self.assertEqual(exit_code, 0)
+        return json.loads(stdout.getvalue())
+
+    @staticmethod
+    def codes(report: dict) -> set[str]:
+        return {f["code"] for f in report["findings"]}
+
+    def make_minimal_site(self) -> Path:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        site_dir = Path(temp_dir.name) / "sample---sample"
+        site_dir.mkdir(parents=True)
+        (site_dir / "website.yml").write_text("adx_name: Sample\n", encoding="utf-8")
+        return site_dir
+
+    def test_wrn005_pascalcase_nav_property_does_not_fire(self) -> None:
+        """Custom-entity nav properties typically use PascalCase. Should
+        NOT trigger WRN-005 (which targets all-lowercase forms)."""
+        site = self.make_minimal_site()
+        page = site / "web-pages" / "form"
+        page.mkdir(parents=True)
+        (page / "form.webpage.custom_javascript.js").write_text(
+            'data["contoso_Application_contoso_Owner@odata.bind"] = "/contacts(" + cid + ")";\n',
+            encoding="utf-8",
+        )
+        report = self.run_audit(site)
+        self.assertNotIn("WRN-005", self.codes(report))
+
+    def test_wrn008_empty_fields_setting_does_not_fire(self) -> None:
+        """Webapi/<entity>/Fields = "" (empty) should NOT raise WRN-008
+        — that's the wildcard-narrowing case INFO-002 may handle, but
+        not unknown-fields."""
+        site = self.make_minimal_site()
+        ss = site / "site-settings"; ss.mkdir()
+        (ss / "fields.sitesetting.yml").write_text(
+            textwrap.dedent("""\
+                adx_name: Webapi/acme_case/Fields
+                adx_value: ""
+                statecode: 0
+                """),
+            encoding="utf-8",
+        )
+        report = self.run_audit(site)
+        self.assertNotIn("WRN-008", self.codes(report))
+
+    def test_info007_safe_dotliquid_replace_does_not_fire(self) -> None:
+        """A `replace: 'X', 'Y'` that doesn't escape quotes should NOT
+        trigger INFO-007 (which targets the specific unsafe pattern
+        `replace: '\"', '\\\"'`)."""
+        site = self.make_minimal_site()
+        wt = site / "web-templates"; wt.mkdir()
+        (wt / "safe.webtemplate.source.html").write_text(
+            "{{ entity.field | replace: 'foo', 'bar' }}",
+            encoding="utf-8",
+        )
+        report = self.run_audit(site)
+        self.assertNotIn("INFO-007", self.codes(report))
+
+    def test_info008_for_loop_without_query_does_not_fire(self) -> None:
+        """A `{% for %}` loop with no nested query should NOT trigger
+        the N+1 INFO-008 finding."""
+        site = self.make_minimal_site()
+        wt = site / "web-templates"; wt.mkdir()
+        (wt / "list.webtemplate.source.html").write_text(
+            textwrap.dedent("""\
+                {% for case in cases %}
+                  <li>{{ case.name }}</li>
+                {% endfor %}
+                """),
+            encoding="utf-8",
+        )
+        report = self.run_audit(site)
+        self.assertNotIn("INFO-008", self.codes(report))
+
+    def test_wrn003_with_defined_sitemarker_does_not_fire(self) -> None:
+        """When the referenced sitemarker IS defined, WRN-003 must not
+        fire — it should only flag UNDEFINED references."""
+        site = self.make_minimal_site()
+        sm = site / "sitemarkers"; sm.mkdir()
+        (sm / "home.sitemarker.yml").write_text(
+            "adx_name: Home\nadx_pageid: 11111111-1111-1111-1111-111111111111\n",
+            encoding="utf-8",
+        )
+        wt = site / "web-templates"; wt.mkdir()
+        (wt / "nav.webtemplate.source.html").write_text(
+            "<a href='{{ sitemarkers[\"Home\"].url }}'>Home</a>",
+            encoding="utf-8",
+        )
+        report = self.run_audit(site)
+        self.assertNotIn("WRN-003", self.codes(report))
+
+
 if __name__ == "__main__":
     unittest.main()
